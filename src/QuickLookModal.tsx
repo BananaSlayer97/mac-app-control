@@ -9,6 +9,7 @@ interface QuickLookProps {
         usage_count: number;
         category?: string;
         is_system: boolean;
+        date_modified: number;
     } | null;
     onClose: () => void;
 }
@@ -42,6 +43,12 @@ const QuickLookModal: React.FC<QuickLookProps> = ({ app, onClose }) => {
                     <div className="stat-item">
                         <span className="stat-label">Usage Count</span>
                         <span className="stat-value">{app.usage_count}</span>
+                    </div>
+                    <div className="stat-item">
+                        <span className="stat-label">Last Modified</span>
+                        <span className="stat-value">
+                            {new Date(app.date_modified * 1000).toLocaleString()}
+                        </span>
                     </div>
                 </div>
 

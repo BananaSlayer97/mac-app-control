@@ -12,6 +12,7 @@ interface AppInfo {
   category?: string;
   usage_count: number;
   icon_data?: string;
+  date_modified: number;
   is_script?: boolean;
   command?: string;
   cwd?: string;
@@ -43,14 +44,16 @@ function App() {
   const [selectedSideIndex, setSelectedSideIndex] = useState<number>(0);
   const [navigationArea, setNavigationArea] = useState<'sidebar' | 'grid'>('grid');
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'settings'>('grid');
   const [newCategory, setNewCategory] = useState("");
   const [newShortcut, setNewShortcut] = useState("");
 
   // Script Management State
   const [newScriptName, setNewScriptName] = useState("");
   const [newScriptCmd, setNewScriptCmd] = useState("");
-  const [newScriptCwd, setNewScriptCwd] = useState(""); // CWD State
+  const [newScriptCwd, setNewScriptCwd] = useState("");
+
+  const [sortBy, setSortBy] = useState<'name' | 'usage' | 'date'>('name');
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; appPath: string | null }>({
@@ -65,18 +68,7 @@ function App() {
   const defaultCategories = ["All", "Frequent", "User Apps", "System"];
   const allCategories = [...defaultCategories, ...(config?.user_categories || [])];
 
-  // Generate a consistent color based on the app name
-  const getColorFromName = (name: string) => {
-    const colors = [
-      "#FF5733", "#33FF57", "#3357FF", "#F333FF", "#33FFF3",
-      "#F3FF33", "#FF3385", "#8533FF", "#33FFBD", "#FF8C33"
-    ];
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return colors[Math.abs(hash) % colors.length];
-  };
+
 
   useEffect(() => {
     // Load config first, then apps (because apps need config for scripts)
@@ -108,7 +100,9 @@ function App() {
   }
 
   useEffect(() => {
-    let result = apps;
+    let result = [...apps];
+
+    // Filtering
     if (searchQuery) {
       result = result.filter(app =>
         app.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -129,7 +123,16 @@ function App() {
       result = result.filter(app => !app.is_system && !app.is_script && app.category === selectedCategory);
     }
 
-    // Prioritize scripts in search if they match well
+    // Sorting
+    if (sortBy === 'name') {
+      result.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    } else if (sortBy === 'usage') {
+      result.sort((a, b) => b.usage_count - a.usage_count);
+    } else if (sortBy === 'date') {
+      result.sort((a, b) => b.date_modified - a.date_modified);
+    }
+
+    // Prioritize scripts in search
     if (searchQuery) {
       result.sort((a, b) => {
         if (a.is_script && !b.is_script) return -1;
@@ -139,7 +142,7 @@ function App() {
     }
 
     setFilteredApps(result);
-  }, [searchQuery, apps, selectedCategory]);
+  }, [searchQuery, apps, selectedCategory, sortBy]);
 
   async function loadApps() {
     try {
@@ -155,7 +158,8 @@ function App() {
         command: script.command,
         cwd: script.cwd,
         usage_count: 0,
-        category: "Scripts"
+        category: "Scripts",
+        date_modified: Date.now() / 1000
       }));
 
       setApps([...scriptApps, ...installedApps]);
@@ -218,6 +222,16 @@ function App() {
     loadConfig().then(() => loadApps());
   }
 
+  async function handleAutoCategorize() {
+    try {
+      await invoke("auto_categorize");
+      await loadConfig();
+      await loadApps();
+    } catch (e) {
+      console.error("Auto categorize failed", e);
+    }
+  }
+
   useEffect(() => {
     const handleClick = () => setContextMenu({ ...contextMenu, visible: false });
     document.addEventListener('click', handleClick);
@@ -226,80 +240,10 @@ function App() {
 
   // Handle Keyboard Navigation
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // If modal is open, let it handle keys (except Escape to close)
-      if (isSettingsOpen) {
-        if (e.key === 'Escape') setIsSettingsOpen(false);
-        return;
-      }
-
-      // Quick Focus Search
-      if (e.metaKey && e.key === 'f') {
-        e.preventDefault();
-        (document.querySelector('.search-bar') as HTMLInputElement)?.focus();
-        (document.querySelector('.search-bar') as HTMLInputElement)?.focus();
-        return;
-      }
-
-      // Quick Look (Space)
-      if (e.code === 'Space' && navigationArea === 'grid' && selectedIndex >= 0 && !searchQuery && !quickLookApp) {
-        // Only trigger if not typing in search bar (usually space is typed there)
-        // Check if search bar is focused
-        if (document.activeElement?.className !== 'search-bar') {
-          e.preventDefault();
-          setQuickLookApp(filteredApps[selectedIndex]);
-          return;
-        }
-      }
-
-      // Close Quick Look with Space or Escape
-      if (quickLookApp && (e.code === 'Space' || e.key === 'Escape')) {
-        e.preventDefault();
-        setQuickLookApp(null);
-        return;
-      }
-
-      // App Launch
-      if (e.key === 'Enter') {
-        if (navigationArea === 'grid' && selectedIndex >= 0 && selectedIndex < filteredApps.length) {
-          launchApp(filteredApps[selectedIndex].path);
-        } else if (navigationArea === 'sidebar') {
-          // Sidebar selection is already active, maybe focus grid?
-          setNavigationArea('grid');
-          setSelectedIndex(0);
-        }
-        return;
-      }
-
-      // Navigation Logic
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-        e.preventDefault();
-
-        if (navigationArea === 'grid') {
-          const cols = Math.floor((document.querySelector('.apps-grid')?.clientWidth || 1000) / 140); // Approx width + gap
-          const total = filteredApps.length;
-
-          if (e.key === 'ArrowRight') setSelectedIndex(prev => Math.min(prev + 1, total - 1));
-          if (e.key === 'ArrowLeft') setSelectedIndex(prev => Math.max(prev - 1, 0));
-          if (e.key === 'ArrowDown') setSelectedIndex(prev => Math.min(prev + cols, total - 1));
-          if (e.key === 'ArrowUp') setSelectedIndex(prev => Math.max(prev - cols, 0));
-        } else {
-          const total = allCategories.length;
-          if (e.key === 'ArrowDown') setSelectedSideIndex(prev => Math.min(prev + 1, total - 1));
-          if (e.key === 'ArrowUp') setSelectedSideIndex(prev => Math.max(prev - 1, 0));
-        }
-      }
-
-      // Tab Switching
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        setNavigationArea(prev => prev === 'sidebar' ? 'grid' : 'sidebar');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filteredApps, selectedIndex, navigationArea, isSettingsOpen, allCategories]);
+    // This effect is now replaced by the one above (Lines 409). 
+    // We will merge them to cleanup. 
+    // For now, removing the conflicting legacy one.
+  }, []);
 
   // Sync selected side index to category
   useEffect(() => {
@@ -357,10 +301,92 @@ function App() {
     loadConfig();
   }
 
+  const getCategoryCount = (category: string) => {
+    if (category === "All") return apps.length;
+    if (category === "Frequent") return apps.filter(a => a.usage_count > 0).length;
+    if (category === "User Apps") return apps.filter(a => !a.is_system && !a.is_script).length;
+    if (category === "System") return apps.filter(a => a.is_system).length;
+    if (category === "Scripts") return apps.filter(a => a.is_script).length;
+    return apps.filter(a => a.category === category).length;
+  };
+
+
+  // ... (keep script state)
+
+  // ... (keep effects)
+
+  // Handle Keyboard Navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Global Back (Escape)
+      if (e.key === 'Escape') {
+        if (quickLookApp) setQuickLookApp(null);
+        else if (viewMode === 'settings') setViewMode('grid');
+        else if (searchQuery) setSearchQuery('');
+        return;
+      }
+
+      if (viewMode === 'settings') return; // Disable grid nav in settings
+
+      // Arrow Keys
+      if (navigationArea === 'grid') {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedIndex(prev => Math.min(prev + 5, filteredApps.length - 1));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedIndex(prev => Math.max(prev - 5, 0));
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          setSelectedIndex(prev => Math.min(prev + 1, filteredApps.length - 1));
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          if (selectedIndex === 0 || selectedIndex % 5 === 0) {
+            setNavigationArea('sidebar');
+            setSelectedIndex(-1);
+          } else {
+            setSelectedIndex(prev => Math.max(prev - 1, 0));
+          }
+        } else if (e.key === 'Enter' && selectedIndex >= 0) {
+          launchApp(filteredApps[selectedIndex].path);
+        } else if (e.key === ' ') {
+          // Quick Look
+          e.preventDefault();
+          if (selectedIndex >= 0) {
+            setQuickLookApp(filteredApps[selectedIndex]);
+          }
+        }
+      } else {
+        // Sidebar Navigation
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedSideIndex(prev => Math.min(prev + 1, allCategories.length - 1));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedSideIndex(prev => Math.max(prev - 1, 0));
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          setNavigationArea('grid');
+          setSelectedIndex(0);
+        } else if (e.key === 'Enter') {
+          setSelectedCategory(allCategories[selectedSideIndex]);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredApps, selectedIndex, navigationArea, viewMode, allCategories, quickLookApp, searchQuery, selectedSideIndex]);
+
+
   return (
     <div className="app-container layout-vertical">
-      <button className="settings-btn" onClick={() => setIsSettingsOpen(true)} title="Settings">
-        ⚙️
+      <button
+        className={`settings-btn ${viewMode === 'settings' ? 'active' : ''}`}
+        onClick={() => setViewMode(prev => prev === 'grid' ? 'settings' : 'grid')}
+        title="Settings"
+      >
+        {viewMode === 'grid' ? '⚙️' : '🏠'}
       </button>
 
       <aside className="sidebar">
@@ -373,166 +399,200 @@ function App() {
               setSelectedCategory(category);
               setNavigationArea('sidebar');
               setSelectedSideIndex(index);
+              if (viewMode === 'settings') setViewMode('grid');
             }}
             onContextMenu={(e) => e.preventDefault()}
           >
-            {category}
+            <span className="category-name">{category}</span>
+            <span className="category-count">{getCategoryCount(category)}</span>
           </div>
         ))}
       </aside>
 
       <main className="main-content">
-        <header className="header">
-          <div></div>
-          <input
-            type="text"
-            className="search-bar"
-            placeholder="Search applications..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </header>
-
-        <div className="apps-grid">
-          {filteredApps.map((app, index) => (
-            <div
-              key={app.path}
-              id={`app-${index}`}
-              className={`app-card ${selectedIndex === index ? 'selected' : ''}`}
-              onClick={() => {
-                setSelectedIndex(index);
-                launchApp(app.path);
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextMenu({
-                  visible: true,
-                  x: e.clientX,
-                  y: e.clientY,
-                  appPath: app.path
-                });
-              }}
-            >
-              <div className="app-icon">
-                {app.is_script ? (
-                  <div className="placeholder-icon script-icon" style={{ backgroundColor: '#10b981' }}>
-                    {'>_'}
-                  </div>
-                ) : app.icon_data ? (
-                  <img src={app.icon_data} alt={app.name} className="native-icon" />
-                ) : (
-                  <div className="placeholder-icon" style={{ backgroundColor: getColorFromName(app.name) }}>
-                    {app.name[0]}
-                  </div>
-                )}
-              </div>
-              <div className="app-name">{app.name}</div>
-              {!app.is_system && !app.is_script ? (
+        {viewMode === 'grid' ? (
+          <>
+            <header className="header">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search apps..."
+                className="search-bar"
+              />
+              <div className="sort-controls">
                 <select
-                  className="category-select"
-                  value={app.category || "Other"}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => setCategory(app.path, e.target.value)}
+                  className="sort-select"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as 'name' | 'usage' | 'date')}
                 >
-                  {allCategories.filter(c => !["All", "Frequent", "User Apps", "System"].includes(c)).map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                  <option value="Other">Other</option>
+                  <option value="name">Name (A-Z)</option>
+                  <option value="usage">Most Used</option>
+                  <option value="date">Newest</option>
                 </select>
-              ) : (
-                <div className="system-tag">System App</div>
-              )}
+              </div>
+            </header>
+
+            <div className="apps-grid">
+              {filteredApps.map((app, index) => (
+                <div
+                  key={app.path}
+                  id={`app-${index}`}
+                  className={`app-card ${navigationArea === 'grid' && selectedIndex === index ? 'selected' : ''}`}
+                  onClick={() => launchApp(app.path)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, appPath: app.path });
+                  }}
+                >
+                  {app.icon_data ? (
+                    <img src={app.icon_data} alt={app.name} className="app-icon" />
+                  ) : (
+                    <div className="app-placeholder">{app.name.charAt(0)}</div>
+                  )}
+                  <span className="app-name">{app.name}</span>
+                  {app.is_script && <span className="script-badge">Script</span>}
+                  {!app.is_script && (
+                    <select
+                      className="category-select"
+                      value={app.category || ""}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setCategory(app.path, e.target.value)}
+                    >
+                      <option value="">Uncategorized</option>
+                      {config?.user_categories.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        ) : (
+          <div className="settings-dashboard">
+            <h1 className="settings-title">Control Center</h1>
+
+            <div className="settings-grid">
+              {/* General Section */}
+              <section className="settings-group">
+                <h3 className="group-title">General</h3>
+                <div className="group-card">
+                  <div className="setting-item">
+                    <div className="setting-label">
+                      <span>Global Shortcut</span>
+                      <small>Wake app from anywhere</small>
+                    </div>
+                    <div className="setting-control">
+                      <input
+                        type="text"
+                        value={newShortcut}
+                        readOnly
+                        placeholder="Press keys..."
+                        className="shortcut-input"
+                        onKeyDown={handleRecordShortcut}
+                      />
+                      <button className="small-btn" onClick={handleUpdateShortcut}>Save</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Organization Section */}
+              <section className="settings-group">
+                <h3 className="group-title">Organization</h3>
+                <div className="group-card">
+                  <div className="setting-item">
+                    <div className="setting-label">
+                      <span>Smart Auto-Sort</span>
+                      <small>Heuristically categorize apps</small>
+                    </div>
+                    <button className="action-btn gradient-btn" onClick={handleAutoCategorize}>
+                      ✨ Auto-Sort Now
+                    </button>
+                  </div>
+                  <div className="divider"></div>
+                  <div className="setting-item column">
+                    <div className="setting-label">
+                      <span>Manage Categories</span>
+                    </div>
+                    <div className="tags-container">
+                      {config?.user_categories.map(c => (
+                        <span key={c} className="tag-chip">
+                          {c}
+                          <button onClick={() => handleRemoveCategory(c)}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="add-row">
+                      <input
+                        type="text"
+                        value={newCategory}
+                        onChange={(e) => setNewCategory(e.target.value)}
+                        placeholder="New Category..."
+                      />
+                      <button className="small-btn" onClick={handleAddCategory}>Add</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Automation Section */}
+              <section className="settings-group">
+                <h3 className="group-title">Automation & Scripts</h3>
+                <div className="group-card">
+                  {/* Add Script */}
+                  <div className="setting-item column bg-subtle">
+                    <div className="add-script-row">
+                      <input
+                        type="text"
+                        value={newScriptName}
+                        onChange={(e) => setNewScriptName(e.target.value)}
+                        placeholder="Name (e.g. 'Deploy')"
+                        style={{ width: '120px' }}
+                      />
+                      <input
+                        type="text"
+                        value={newScriptCmd}
+                        onChange={(e) => setNewScriptCmd(e.target.value)}
+                        placeholder="Shell Command..."
+                        style={{ flex: 1 }}
+                      />
+                      <input
+                        type="text"
+                        value={newScriptCwd}
+                        onChange={(e) => setNewScriptCwd(e.target.value)}
+                        placeholder="CWD (Optional)"
+                        style={{ width: '100px' }}
+                      />
+                      <button className="small-btn primary" onClick={handleAddScript}>Add</button>
+                    </div>
+                  </div>
+
+                  {/* Script List */}
+                  <div className="scripts-list">
+                    {(config?.scripts || []).map(s => (
+                      <div key={s.name} className="script-row">
+                        <div className="script-icon-badge">{'>_'}</div>
+                        <div className="script-info">
+                          <span className="name">{s.name}</span>
+                          <span className="cmd">{s.command}</span>
+                        </div>
+                        <button className="delete-btn" onClick={() => handleRemoveScript(s.name)}>Delete</button>
+                      </div>
+                    ))}
+                    {(config?.scripts || []).length === 0 && (
+                      <div className="empty-state">No custom scripts added yet.</div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        )}
       </main>
 
-      {isSettingsOpen && (
-        <div className="modal-overlay" onClick={() => setIsSettingsOpen(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Settings</h3>
-
-            <section className="settings-section">
-              <h4>Global Shortcut</h4>
-              <div className="setting-row">
-                <input
-                  type="text"
-                  value={newShortcut}
-                  readOnly
-                  placeholder="Click to record shortcut..."
-                  className="shortcut-input"
-                  onKeyDown={handleRecordShortcut}
-                  style={{ cursor: 'pointer', textAlign: 'center', fontWeight: 'bold' }}
-                />
-                <button onClick={handleUpdateShortcut}>Save</button>
-              </div>
-              <p className="setting-hint">Click the box and press your desired key combination (e.g. Cmd+P)</p>
-            </section>
-
-            <section className="settings-section">
-              <h4>Scripts (Custom Commands)</h4>
-              <div className="category-list">
-                {(config?.scripts || []).map(s => (
-                  <div key={s.name} className="category-manager-item">
-                    <div className="script-info">
-                      <span className="script-name">{s.name}</span>
-                      <span className="script-details" title={`${s.command} ${s.cwd ? `(in ${s.cwd})` : ''}`}>
-                        {s.command} {s.cwd ? <span style={{ color: '#10b981' }}>(in {s.cwd})</span> : ''}
-                      </span>
-                    </div>
-                    <button onClick={() => handleRemoveScript(s.name)}>Delete</button>
-                  </div>
-                ))}
-              </div>
-              <div className="setting-row">
-                <input
-                  type="text"
-                  value={newScriptName}
-                  onChange={(e) => setNewScriptName(e.target.value)}
-                  placeholder="Name"
-                />
-                <input
-                  type="text"
-                  value={newScriptCmd}
-                  onChange={(e) => setNewScriptCmd(e.target.value)}
-                  placeholder="Command"
-                />
-                <input
-                  type="text"
-                  value={newScriptCwd}
-                  onChange={(e) => setNewScriptCwd(e.target.value)}
-                  placeholder="Directory (Optional)"
-                />
-                <button onClick={handleAddScript}>Add</button>
-              </div>
-            </section>
-
-            <section className="settings-section">
-              <h4>Manage Categories</h4>
-              <div className="category-list">
-                {config?.user_categories.map(c => (
-                  <div key={c} className="category-manager-item">
-                    <span>{c}</span>
-                    <button onClick={() => handleRemoveCategory(c)}>Delete</button>
-                  </div>
-                ))}
-              </div>
-              <div className="setting-row">
-                <input
-                  type="text"
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  placeholder="New category name"
-                />
-                <button onClick={handleAddCategory}>Add</button>
-              </div>
-            </section>
-
-            <button className="close-modal" onClick={() => setIsSettingsOpen(false)}>Close</button>
-          </div>
-        </div>
-      )}
-
+      {/* Context Menu & Modals */}
       <ContextMenu
         visible={contextMenu.visible}
         x={contextMenu.x}

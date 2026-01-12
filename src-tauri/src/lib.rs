@@ -49,6 +49,7 @@ pub struct AppInfo {
     category: Option<String>,
     usage_count: u32,
     icon_data: Option<String>,
+    date_modified: u64, // Timestamp in seconds
 }
 
 fn get_config_path() -> PathBuf {
@@ -198,6 +199,43 @@ fn update_shortcut(app_handle: AppHandle, shortcut: String) {
 }
 
 #[tauri::command]
+fn update_app_category(path: String, category: String) {
+    let mut config = load_config();
+    config.categories.insert(path, category);
+    save_config(&config);
+}
+
+#[tauri::command]
+fn launch_app(path: String) {
+    let mut config = load_config();
+    let count = config.usage_counts.entry(path.clone()).or_insert(0);
+    *count += 1;
+    save_config(&config);
+
+    let _ = Command::new("open").arg(path).spawn();
+}
+
+fn guess_category(name: &str) -> Option<String> {
+    let lower = name.to_lowercase();
+    if lower.contains("code") || lower.contains("studio") || lower.contains("terminal") || lower.contains("git") || lower.contains("intellij") || lower.contains("sublime") || lower.contains("warp") || lower.contains("dev") {
+        return Some("Development".to_string());
+    }
+    if lower.contains("slack") || lower.contains("discord") || lower.contains("telegram") || lower.contains("wechat") || lower.contains("zoom") || lower.contains("skype") || lower.contains("talk") {
+        return Some("Social".to_string());
+    }
+    if lower.contains("photo") || lower.contains("image") || lower.contains("design") || lower.contains("figma") || lower.contains("sketch") || lower.contains("adobe") || lower.contains("blender") {
+        return Some("Design".to_string());
+    }
+    if lower.contains("office") || lower.contains("word") || lower.contains("excel") || lower.contains("pages") || lower.contains("keynote") || lower.contains("notion") || lower.contains("obsidian") || lower.contains("note") {
+        return Some("Productivity".to_string());
+    }
+    if lower.contains("chrome") || lower.contains("firefox") || lower.contains("safari") || lower.contains("edge") || lower.contains("browser") || lower.contains("arc") {
+        return Some("Productivity".to_string());
+    }
+    None
+}
+
+#[tauri::command]
 fn get_installed_apps() -> Vec<AppInfo> {
     let mut apps = Vec::new();
     let config = load_config();
@@ -225,9 +263,14 @@ fn get_installed_apps() -> Vec<AppInfo> {
                     let category = config.categories.get(&path).cloned();
                     let usage_count = *config.usage_counts.get(&path).unwrap_or(&0);
                     let icon_data = get_app_icon_cached(&path);
+                    
+                    let date_modified = fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+                        .unwrap_or(0);
 
                     apps.push(AppInfo {
-                        name: name.to_string(), path, is_system, category, usage_count, icon_data,
+                        name: name.to_string(), path, is_system, category, usage_count, icon_data, date_modified
                     });
                 }
             }
@@ -238,20 +281,32 @@ fn get_installed_apps() -> Vec<AppInfo> {
 }
 
 #[tauri::command]
-fn update_app_category(path: String, category: String) {
+fn auto_categorize() {
     let mut config = load_config();
-    config.categories.insert(path, category);
-    save_config(&config);
-}
+    let mut modified = false;
 
-#[tauri::command]
-fn launch_app(path: String) {
-    let mut config = load_config();
-    let count = config.usage_counts.entry(path.clone()).or_insert(0);
-    *count += 1;
-    save_config(&config);
-
-    let _ = Command::new("open").arg(path).spawn();
+    if let Ok(output) = Command::new("mdfind").arg("-onlyin").arg("/Applications").arg("kMDItemContentTypeTree == 'com.apple.application-bundle'").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for path_str in stdout.lines() {
+             let path = PathBuf::from(path_str);
+             if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                 let path_string = path.to_string_lossy().to_string();
+                 if !config.categories.contains_key(&path_string) {
+                     if let Some(cat) = guess_category(name) {
+                         config.categories.insert(path_string, cat.clone());
+                         if !config.user_categories.contains(&cat) {
+                             config.user_categories.push(cat);
+                         }
+                         modified = true;
+                     }
+                 }
+             }
+        }
+    }
+    
+    if modified {
+        save_config(&config);
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -261,11 +316,8 @@ pub struct ScriptAction {
     cwd: Option<String>,
 }
 
-// ...
-
 #[tauri::command]
 fn run_script(command: String, cwd: Option<String>) {
-    // 1. Construct the full shell command string
     let mut full_command = String::new();
     full_command.push_str("#!/bin/sh\n");
     full_command.push_str("echo 'Running Custom Script...'\n");
@@ -282,15 +334,11 @@ fn run_script(command: String, cwd: Option<String>) {
     full_command.push_str("echo 'Script finished. Press any key to close.'\n");
     full_command.push_str("read -n 1\n");
 
-    // 2. Write to a temp file
     let temp_dir = std::env::temp_dir();
     let file_path = temp_dir.join(format!("macappcontrol_script_{}.command", chrono::Utc::now().timestamp_millis()));
     
     if let Ok(_) = fs::write(&file_path, full_command) {
-        // 3. Make executable
         let _ = Command::new("chmod").arg("+x").arg(&file_path).status();
-        
-        // 4. Open with default terminal (using 'open' on a .command file works well on macOS)
         let _ = Command::new("open").arg(file_path).spawn();
     }
 }
@@ -366,7 +414,8 @@ pub fn run() {
             reveal_in_finder,
             run_script,
             add_script,
-            remove_script
+            remove_script,
+            auto_categorize
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
