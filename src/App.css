@@ -343,10 +343,17 @@ body {
   position: relative;
 }
 
-.app-card:hover {
+.app-card:hover,
+.app-card.selected {
   background: var(--card-hover-bg);
   border-color: rgba(59, 130, 246, 0.4);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 1px var(--glow-color);
+}
+
+.app-card.selected {
+  border-color: var(--accent-color);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 2px var(--accent-color);
+  transform: scale(1.02);
 }
 
 .app-card:active {

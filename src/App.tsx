@@ -23,8 +23,14 @@ function App() {
   const [filteredApps, setFilteredApps] = useState<AppInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
+
+  // Navigation State
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [selectedSideIndex, setSelectedSideIndex] = useState<number>(0);
+  const [navigationArea, setNavigationArea] = useState<'sidebar' | 'grid'>('grid');
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [newCategory, setNewCategory] = useState("");
   const [newShortcut, setNewShortcut] = useState("");
 
@@ -124,6 +130,115 @@ function App() {
     loadApps();
   }
 
+  // Handle Keyboard Navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // If modal is open, let it handle keys (except Escape to close)
+      if (isSettingsOpen) {
+        if (e.key === 'Escape') setIsSettingsOpen(false);
+        return;
+      }
+
+      // Quick Focus Search
+      if (e.metaKey && e.key === 'f') {
+        e.preventDefault();
+        (document.querySelector('.search-bar') as HTMLInputElement)?.focus();
+        return;
+      }
+
+      // App Launch
+      if (e.key === 'Enter') {
+        if (navigationArea === 'grid' && selectedIndex >= 0 && selectedIndex < filteredApps.length) {
+          launchApp(filteredApps[selectedIndex].path);
+        } else if (navigationArea === 'sidebar') {
+          // Sidebar selection is already active, maybe focus grid?
+          setNavigationArea('grid');
+          setSelectedIndex(0);
+        }
+        return;
+      }
+
+      // Navigation Logic
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+
+        if (navigationArea === 'grid') {
+          const cols = Math.floor((document.querySelector('.apps-grid')?.clientWidth || 1000) / 140); // Approx width + gap
+          const total = filteredApps.length;
+
+          if (e.key === 'ArrowRight') setSelectedIndex(prev => Math.min(prev + 1, total - 1));
+          if (e.key === 'ArrowLeft') setSelectedIndex(prev => Math.max(prev - 1, 0));
+          if (e.key === 'ArrowDown') setSelectedIndex(prev => Math.min(prev + cols, total - 1));
+          if (e.key === 'ArrowUp') setSelectedIndex(prev => Math.max(prev - cols, 0));
+        } else {
+          const total = allCategories.length;
+          if (e.key === 'ArrowDown') setSelectedSideIndex(prev => Math.min(prev + 1, total - 1));
+          if (e.key === 'ArrowUp') setSelectedSideIndex(prev => Math.max(prev - 1, 0));
+        }
+      }
+
+      // Tab Switching
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        setNavigationArea(prev => prev === 'sidebar' ? 'grid' : 'sidebar');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredApps, selectedIndex, navigationArea, isSettingsOpen, allCategories]);
+
+  // Sync selected side index to category
+  useEffect(() => {
+    if (navigationArea === 'sidebar' && allCategories[selectedSideIndex]) {
+      setSelectedCategory(allCategories[selectedSideIndex]);
+    }
+  }, [selectedSideIndex, navigationArea]);
+
+  // Reset grid selection when category changes
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [selectedCategory, searchQuery]);
+
+  // Auto-scroll to selected item
+  useEffect(() => {
+    if (selectedIndex >= 0) {
+      const el = document.getElementById(`app-${selectedIndex}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [selectedIndex]);
+
+  const handleRecordShortcut = (e: React.KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const key = e.key.toUpperCase();
+    const code = e.code;
+
+    // Ignore standalone modifier presses
+    if (["CONTROL", "ALT", "SHIFT", "META"].includes(key)) return;
+
+    let modifiers = [];
+    if (e.altKey) modifiers.push("Alt");
+    if (e.ctrlKey) modifiers.push("Ctrl");
+    if (e.shiftKey) modifiers.push("Shift");
+    if (e.metaKey) modifiers.push("Cmd");
+
+    // Map common keys to standard names
+    let finalKey = key;
+    if (code === "Space") finalKey = "Space";
+    else if (key.length === 1) finalKey = key;
+    else if (code.startsWith("Key")) finalKey = code.replace("Key", "");
+    else if (code.startsWith("Digit")) finalKey = code.replace("Digit", "");
+
+    if (modifiers.length > 0) {
+      setNewShortcut(`${modifiers.join("+")}+${finalKey}`);
+    } else {
+      // Allow single function keys but prefer modifiers for standard keys
+      setNewShortcut(finalKey);
+    }
+  };
+
   async function handleUpdateShortcut() {
     await invoke("update_shortcut", { shortcut: newShortcut });
     loadConfig();
@@ -137,11 +252,15 @@ function App() {
 
       <aside className="sidebar">
         <h2 className="sidebar-title">Categories</h2>
-        {allCategories.map(category => (
+        {allCategories.map((category, index) => (
           <div
             key={category}
-            className={`category-item ${selectedCategory === category ? "active" : ""}`}
-            onClick={() => setSelectedCategory(category)}
+            className={`category-item ${selectedCategory === category ? "active" : ""} ${navigationArea === 'sidebar' && selectedSideIndex === index ? "selected" : ""}`} // Add visual selected state for keyboard
+            onClick={() => {
+              setSelectedCategory(category);
+              setNavigationArea('sidebar');
+              setSelectedSideIndex(index);
+            }}
           >
             {category}
           </div>
@@ -161,13 +280,16 @@ function App() {
         </header>
 
         <div className="apps-grid">
-          {filteredApps.map((app) => (
+          {filteredApps.map((app, index) => (
             <div
               key={app.path}
-              className="app-card"
-              onClick={() => launchApp(app.path)}
-              tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && launchApp(app.path)}
+              id={`app-${index}`}
+              className={`app-card ${selectedIndex === index ? 'selected' : ''}`}
+              onClick={() => {
+                setSelectedIndex(index);
+                launchApp(app.path);
+              }}
+            // Removed individual tabIndex and onKeyDown as global listener handles it better
             >
               <div className="app-icon">
                 {app.icon_data ? (
@@ -210,12 +332,15 @@ function App() {
                 <input
                   type="text"
                   value={newShortcut}
-                  onChange={(e) => setNewShortcut(e.target.value)}
-                  placeholder="Alt+Space"
+                  readOnly
+                  placeholder="Click to record shortcut..."
+                  className="shortcut-input"
+                  onKeyDown={handleRecordShortcut}
+                  style={{ cursor: 'pointer', textAlign: 'center', fontWeight: 'bold' }}
                 />
                 <button onClick={handleUpdateShortcut}>Save</button>
               </div>
-              <p className="setting-hint">Format: Alt+Space, Cmd+P, etc.</p>
+              <p className="setting-hint">Click the box and press your desired key combination (e.g. Cmd+P)</p>
             </section>
 
             <section className="settings-section">
