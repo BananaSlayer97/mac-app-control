@@ -1,5 +1,7 @@
 # 🖥️ Mac App Control (Mac 应用控制中心)
 
+[![English](https://img.shields.io/badge/README-English-blue.svg)](README.md)
+
 这是一个使用 **Tauri v2** 和 **React** 构建的强大、原生的 macOS 应用程序管理器。旨在通过更快、更有条理和高度可定制的界面，替代标准的 macOS 应用程序启动体验。
 
 ![Platform](https://img.shields.io/badge/platform-macOS-blue)

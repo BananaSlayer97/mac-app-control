@@ -1,5 +1,7 @@
 # 🖥️ Mac App Control
 
+[![简体中文](https://img.shields.io/badge/README-简体中文-blue.svg)](README-CN.md)
+
 A powerful, native macOS application manager built with **Tauri v2** and **React**. Designed to replace the standard macOS application launching experience with a faster, more organized, and customizable interface.
 
 ![Platform](https://img.shields.io/badge/platform-macOS-blue)
