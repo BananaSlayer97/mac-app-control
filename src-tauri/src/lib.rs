@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::collections::HashMap;
 use base64::{Engine as _, engine::general_purpose};
+use chrono;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -12,12 +13,15 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState, Code, Modifiers, Shortcut};
 
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AppConfig {
     pub categories: HashMap<String, String>,
     pub usage_counts: HashMap<String, u32>,
     pub user_categories: Vec<String>,
     pub shortcut: String,
+    #[serde(default)]
+    pub scripts: Vec<ScriptAction>,
 }
 
 impl Default for AppConfig {
@@ -32,6 +36,7 @@ impl Default for AppConfig {
                 "Other".to_string(),
             ],
             shortcut: "Alt+Space".to_string(),
+            scripts: vec![],
         }
     }
 }
@@ -249,6 +254,66 @@ fn launch_app(path: String) {
     let _ = Command::new("open").arg(path).spawn();
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ScriptAction {
+    name: String,
+    command: String,
+    cwd: Option<String>,
+}
+
+// ...
+
+#[tauri::command]
+fn run_script(command: String, cwd: Option<String>) {
+    // 1. Construct the full shell command string
+    let mut full_command = String::new();
+    full_command.push_str("#!/bin/sh\n");
+    full_command.push_str("echo 'Running Custom Script...'\n");
+    
+    if let Some(path) = cwd {
+        if !path.trim().is_empty() {
+            full_command.push_str(&format!("cd \"{}\" || exit\n", path));
+            full_command.push_str(&format!("echo 'Changed directory to: {}'\n", path));
+        }
+    }
+    
+    full_command.push_str(&format!("{}\n", command));
+    full_command.push_str("echo '\n-----------------------------------'\n");
+    full_command.push_str("echo 'Script finished. Press any key to close.'\n");
+    full_command.push_str("read -n 1\n");
+
+    // 2. Write to a temp file
+    let temp_dir = std::env::temp_dir();
+    let file_path = temp_dir.join(format!("macappcontrol_script_{}.command", chrono::Utc::now().timestamp_millis()));
+    
+    if let Ok(_) = fs::write(&file_path, full_command) {
+        // 3. Make executable
+        let _ = Command::new("chmod").arg("+x").arg(&file_path).status();
+        
+        // 4. Open with default terminal (using 'open' on a .command file works well on macOS)
+        let _ = Command::new("open").arg(file_path).spawn();
+    }
+}
+
+#[tauri::command]
+fn add_script(name: String, command: String, cwd: Option<String>) {
+    let mut config = load_config();
+    config.scripts.push(ScriptAction { name, command, cwd });
+    save_config(&config);
+}
+
+#[tauri::command]
+fn remove_script(name: String) {
+    let mut config = load_config();
+    config.scripts.retain(|s| s.name != name);
+    save_config(&config);
+}
+
+#[tauri::command]
+fn reveal_in_finder(path: String) {
+    let _ = Command::new("open").arg("-R").arg(path).spawn();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -258,6 +323,10 @@ pub fn run() {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 window.hide().unwrap();
                 api.prevent_close();
+            }
+            tauri::WindowEvent::Focused(false) => {
+                // Auto-hide when focus is lost
+                window.hide().unwrap();
             }
             _ => {}
         })
@@ -293,7 +362,11 @@ pub fn run() {
             get_config,
             add_category,
             remove_category,
-            update_shortcut
+            update_shortcut,
+            reveal_in_finder,
+            run_script,
+            add_script,
+            remove_script
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

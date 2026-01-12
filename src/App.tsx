@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import "./App.css";
+import ContextMenu from "./ContextMenu";
+import QuickLookModal from "./QuickLookModal";
 
 interface AppInfo {
   name: string;
@@ -9,6 +12,15 @@ interface AppInfo {
   category?: string;
   usage_count: number;
   icon_data?: string;
+  is_script?: boolean;
+  command?: string;
+  cwd?: string;
+}
+
+interface ScriptAction {
+  name: string;
+  command: string;
+  cwd?: string;
 }
 
 interface AppConfig {
@@ -16,6 +28,7 @@ interface AppConfig {
   usage_counts: Record<string, number>;
   user_categories: string[];
   shortcut: string;
+  scripts: ScriptAction[];
 }
 
 function App() {
@@ -34,6 +47,21 @@ function App() {
   const [newCategory, setNewCategory] = useState("");
   const [newShortcut, setNewShortcut] = useState("");
 
+  // Script Management State
+  const [newScriptName, setNewScriptName] = useState("");
+  const [newScriptCmd, setNewScriptCmd] = useState("");
+  const [newScriptCwd, setNewScriptCwd] = useState(""); // CWD State
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; appPath: string | null }>({
+    visible: false,
+    x: 0,
+    y: 0,
+    appPath: null
+  });
+
+  const [quickLookApp, setQuickLookApp] = useState<AppInfo | null>(null);
+
   const defaultCategories = ["All", "Frequent", "User Apps", "System"];
   const allCategories = [...defaultCategories, ...(config?.user_categories || [])];
 
@@ -51,8 +79,20 @@ function App() {
   };
 
   useEffect(() => {
-    loadApps();
-    loadConfig();
+    // Load config first, then apps (because apps need config for scripts)
+    loadConfig().then(() => loadApps());
+
+    // Smart Reset: Clear search when window gains focus
+    const unlisten = listen('tauri://focus', () => {
+      setSearchQuery("");
+      setSelectedIndex(0);
+      // Optional: Select search bar
+      (document.querySelector('.search-bar') as HTMLInputElement)?.focus();
+    });
+
+    return () => {
+      unlisten.then(f => f());
+    }
   }, []);
 
   async function loadConfig() {
@@ -60,8 +100,10 @@ function App() {
       const cfg: AppConfig = await invoke("get_config");
       setConfig(cfg);
       setNewShortcut(cfg.shortcut);
+      return cfg;
     } catch (e) {
       console.error("Failed to load config", e);
+      return null;
     }
   }
 
@@ -76,13 +118,24 @@ function App() {
     if (selectedCategory === "System") {
       result = result.filter(app => app.is_system);
     } else if (selectedCategory === "User Apps") {
-      result = result.filter(app => !app.is_system);
+      result = result.filter(app => !app.is_system && !app.is_script);
+    } else if (selectedCategory === "Scripts") {
+      result = result.filter(app => app.is_script);
     } else if (selectedCategory === "Frequent") {
       result = result.filter(app => app.usage_count > 0)
         .sort((a, b) => b.usage_count - a.usage_count)
         .slice(0, 10);
     } else if (selectedCategory !== "All") {
-      result = result.filter(app => !app.is_system && app.category === selectedCategory);
+      result = result.filter(app => !app.is_system && !app.is_script && app.category === selectedCategory);
+    }
+
+    // Prioritize scripts in search if they match well
+    if (searchQuery) {
+      result.sort((a, b) => {
+        if (a.is_script && !b.is_script) return -1;
+        if (!a.is_script && b.is_script) return 1;
+        return 0;
+      });
     }
 
     setFilteredApps(result);
@@ -91,13 +144,35 @@ function App() {
   async function loadApps() {
     try {
       const installedApps: AppInfo[] = await invoke("get_installed_apps");
-      setApps(installedApps);
+
+      // Merge scripts
+      const cfg: AppConfig = await invoke("get_config"); // Re-fetch to be safe
+      const scriptApps: AppInfo[] = (cfg.scripts || []).map(script => ({
+        name: script.name,
+        path: "Script: " + script.command,
+        is_system: false,
+        is_script: true,
+        command: script.command,
+        cwd: script.cwd,
+        usage_count: 0,
+        category: "Scripts"
+      }));
+
+      setApps([...scriptApps, ...installedApps]);
     } catch (error) {
       console.error("Failed to fetch apps:", error);
     }
   }
 
   async function launchApp(path: string) {
+    // Check if it's a script based on path (hacky but works with our AppInfo structure)
+    // Better: find app in state
+    const app = apps.find(a => a.path === path);
+    if (app && app.is_script && app.command) {
+      invoke("run_script", { command: app.command, cwd: app.cwd });
+      return;
+    }
+
     try {
       await invoke("launch_app", { path });
       // Refresh to update usage counts
@@ -127,8 +202,27 @@ function App() {
     await invoke("remove_category", { category });
     if (selectedCategory === category) setSelectedCategory("All");
     loadConfig();
-    loadApps();
   }
+
+  async function handleAddScript() {
+    if (!newScriptName.trim() || !newScriptCmd.trim()) return;
+    await invoke("add_script", { name: newScriptName, command: newScriptCmd, cwd: newScriptCwd });
+    setNewScriptName("");
+    setNewScriptCmd("");
+    setNewScriptCwd("");
+    loadConfig().then(() => loadApps());
+  }
+
+  async function handleRemoveScript(name: string) {
+    await invoke("remove_script", { name });
+    loadConfig().then(() => loadApps());
+  }
+
+  useEffect(() => {
+    const handleClick = () => setContextMenu({ ...contextMenu, visible: false });
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [contextMenu]);
 
   // Handle Keyboard Navigation
   useEffect(() => {
@@ -143,6 +237,25 @@ function App() {
       if (e.metaKey && e.key === 'f') {
         e.preventDefault();
         (document.querySelector('.search-bar') as HTMLInputElement)?.focus();
+        (document.querySelector('.search-bar') as HTMLInputElement)?.focus();
+        return;
+      }
+
+      // Quick Look (Space)
+      if (e.code === 'Space' && navigationArea === 'grid' && selectedIndex >= 0 && !searchQuery && !quickLookApp) {
+        // Only trigger if not typing in search bar (usually space is typed there)
+        // Check if search bar is focused
+        if (document.activeElement?.className !== 'search-bar') {
+          e.preventDefault();
+          setQuickLookApp(filteredApps[selectedIndex]);
+          return;
+        }
+      }
+
+      // Close Quick Look with Space or Escape
+      if (quickLookApp && (e.code === 'Space' || e.key === 'Escape')) {
+        e.preventDefault();
+        setQuickLookApp(null);
         return;
       }
 
@@ -255,12 +368,13 @@ function App() {
         {allCategories.map((category, index) => (
           <div
             key={category}
-            className={`category-item ${selectedCategory === category ? "active" : ""} ${navigationArea === 'sidebar' && selectedSideIndex === index ? "selected" : ""}`} // Add visual selected state for keyboard
+            className={`category-item ${selectedCategory === category ? "active" : ""} ${navigationArea === 'sidebar' && selectedSideIndex === index ? "selected" : ""}`}
             onClick={() => {
               setSelectedCategory(category);
               setNavigationArea('sidebar');
               setSelectedSideIndex(index);
             }}
+            onContextMenu={(e) => e.preventDefault()}
           >
             {category}
           </div>
@@ -289,10 +403,22 @@ function App() {
                 setSelectedIndex(index);
                 launchApp(app.path);
               }}
-            // Removed individual tabIndex and onKeyDown as global listener handles it better
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({
+                  visible: true,
+                  x: e.clientX,
+                  y: e.clientY,
+                  appPath: app.path
+                });
+              }}
             >
               <div className="app-icon">
-                {app.icon_data ? (
+                {app.is_script ? (
+                  <div className="placeholder-icon script-icon" style={{ backgroundColor: '#10b981' }}>
+                    {'>_'}
+                  </div>
+                ) : app.icon_data ? (
                   <img src={app.icon_data} alt={app.name} className="native-icon" />
                 ) : (
                   <div className="placeholder-icon" style={{ backgroundColor: getColorFromName(app.name) }}>
@@ -301,7 +427,7 @@ function App() {
                 )}
               </div>
               <div className="app-name">{app.name}</div>
-              {!app.is_system ? (
+              {!app.is_system && !app.is_script ? (
                 <select
                   className="category-select"
                   value={app.category || "Other"}
@@ -344,6 +470,44 @@ function App() {
             </section>
 
             <section className="settings-section">
+              <h4>Scripts (Custom Commands)</h4>
+              <div className="category-list">
+                {(config?.scripts || []).map(s => (
+                  <div key={s.name} className="category-manager-item">
+                    <div className="script-info">
+                      <span className="script-name">{s.name}</span>
+                      <span className="script-details" title={`${s.command} ${s.cwd ? `(in ${s.cwd})` : ''}`}>
+                        {s.command} {s.cwd ? <span style={{ color: '#10b981' }}>(in {s.cwd})</span> : ''}
+                      </span>
+                    </div>
+                    <button onClick={() => handleRemoveScript(s.name)}>Delete</button>
+                  </div>
+                ))}
+              </div>
+              <div className="setting-row">
+                <input
+                  type="text"
+                  value={newScriptName}
+                  onChange={(e) => setNewScriptName(e.target.value)}
+                  placeholder="Name"
+                />
+                <input
+                  type="text"
+                  value={newScriptCmd}
+                  onChange={(e) => setNewScriptCmd(e.target.value)}
+                  placeholder="Command"
+                />
+                <input
+                  type="text"
+                  value={newScriptCwd}
+                  onChange={(e) => setNewScriptCwd(e.target.value)}
+                  placeholder="Directory (Optional)"
+                />
+                <button onClick={handleAddScript}>Add</button>
+              </div>
+            </section>
+
+            <section className="settings-section">
               <h4>Manage Categories</h4>
               <div className="category-list">
                 {config?.user_categories.map(c => (
@@ -368,6 +532,36 @@ function App() {
           </div>
         </div>
       )}
+
+      <ContextMenu
+        visible={contextMenu.visible}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        onClose={() => setContextMenu({ ...contextMenu, visible: false })}
+        actions={[
+          {
+            label: "Open / Launch",
+            onClick: () => contextMenu.appPath && launchApp(contextMenu.appPath)
+          },
+          {
+            label: "Reveal in Finder",
+            onClick: () => contextMenu.appPath && invoke("reveal_in_finder", { path: contextMenu.appPath })
+          },
+          {
+            label: "Copy Path",
+            onClick: () => {
+              if (contextMenu.appPath) {
+                navigator.clipboard.writeText(contextMenu.appPath);
+              }
+            }
+          }
+        ]}
+      />
+
+      <QuickLookModal
+        app={quickLookApp}
+        onClose={() => setQuickLookApp(null)}
+      />
     </div>
   );
 }

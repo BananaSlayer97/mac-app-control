@@ -30,6 +30,17 @@ A powerful, native macOS application manager built with **Tauri v2** and **React
 - **Native Icons**: High-quality macOS application icons extracted and cached locally for instantaneous loading.
 - **Performance First**: Optimized Rust backend ensures virtually zero lag during searching and filtering.
 
+### 🧠 UX Mastery
+- **Auto-Hide**: The app automatically hides itself when you click away (lose focus).
+- **Smart Reset**: Every time you open the app, the search bar is cleared and focused, ready for new input.
+- **Quick Look**: Press `Spacebar` on any app to instantly preview its details (Path, Version, Usage Count).
+
+### 🛠️ Script Actions (Power User)
+- **Custom Shell Scripts**: Define your own terminal commands in Settings (e.g., `npm run dev`, `python3 main.py`).
+- **Context Aware**: Specify a **Working Directory** for each script to run it in the correct project folder.
+- **Visible Execution**: Scripts run in a new Terminal window so you can monitor progress and see output.
+- **Unified Search**: Search for your scripts just like apps! They appear with a distinctive terminal icon.
+
 ---
 
 ## 📦 Installation
