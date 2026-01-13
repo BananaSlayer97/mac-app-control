@@ -10,6 +10,7 @@ interface ContextMenuProps {
         label: string;
         onClick: () => void;
         danger?: boolean;
+        divider?: boolean;
     }[];
 }
 
@@ -50,16 +51,20 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, visible, onClose, actio
             onContextMenu={(e) => e.preventDefault()}
         >
             {actions.map((action, index) => (
-                <div
-                    key={index}
-                    className={`context-menu-item ${action.danger ? 'danger' : ''}`}
-                    onClick={() => {
-                        action.onClick();
-                        onClose();
-                    }}
-                >
-                    {action.label}
-                </div>
+                <React.Fragment key={index}>
+                    {action.divider && <div className="context-menu-divider" />}
+                    <div
+                        className={`context-menu-item ${action.danger ? 'danger' : ''} ${action.divider ? 'header' : ''}`}
+                        onClick={() => {
+                            if (!action.divider) {
+                                action.onClick();
+                                onClose();
+                            }
+                        }}
+                    >
+                        {action.label}
+                    </div>
+                </React.Fragment>
             ))}
         </div>
     );

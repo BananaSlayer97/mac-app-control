@@ -22,21 +22,35 @@ pub struct AppConfig {
     pub shortcut: String,
     #[serde(default)]
     pub scripts: Vec<ScriptAction>,
+    #[serde(default)]
+    pub category_order: Vec<String>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
+        let core_categories = vec![
+            "All".to_string(),
+            "Frequent".to_string(),
+            "Scripts".to_string(),
+            "Development".to_string(),
+            "Social".to_string(),
+            "Design".to_string(),
+            "Productivity".to_string(),
+            "User Apps".to_string(),
+            "System".to_string(),
+        ];
         Self {
             categories: HashMap::new(),
             usage_counts: HashMap::new(),
             user_categories: vec![
-                "Productivity".to_string(),
-                "Social".to_string(),
                 "Development".to_string(),
-                "Other".to_string(),
+                "Social".to_string(),
+                "Design".to_string(),
+                "Productivity".to_string(),
             ],
             shortcut: "Alt+Space".to_string(),
             scripts: vec![],
+            category_order: core_categories,
         }
     }
 }
@@ -62,11 +76,34 @@ fn get_config_path() -> PathBuf {
 fn load_config() -> AppConfig {
     let mut path = get_config_path();
     path.push("config.json");
-    if let Ok(content) = fs::read_to_string(path) {
+    let mut config: AppConfig = if let Ok(content) = fs::read_to_string(path) {
         serde_json::from_str(&content).unwrap_or_default()
     } else {
         AppConfig::default()
+    };
+
+    // If category_order is empty (migration for existing users), populate it
+    if config.category_order.is_empty() {
+        let mut default_order = vec![
+            "All".to_string(),
+            "Frequent".to_string(),
+            "Scripts".to_string(),
+            "Development".to_string(),
+            "Social".to_string(),
+            "Design".to_string(),
+            "Productivity".to_string(),
+            "User Apps".to_string(),
+            "System".to_string(),
+        ];
+        // Add any user categories that are not in the default order
+        for cat in &config.user_categories {
+            if !default_order.contains(cat) {
+                default_order.push(cat.clone());
+            }
+        }
+        config.category_order = default_order;
     }
+    config
 }
 
 fn save_config(config: &AppConfig) {
@@ -89,30 +126,36 @@ fn get_app_icon_cached(app_path: &str) -> Option<String> {
     let hashed_name = format!("{:x}", md5::compute(app_path));
     let cache_path = cache_dir.join(format!("{}.png", hashed_name));
 
+    // Return cached if exists
     if cache_path.exists() {
         if let Ok(data) = fs::read(&cache_path) {
             return Some(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(data)));
         }
     }
 
-    let icon_dir = Path::new(app_path).join("Contents/Resources");
-    if let Ok(entries) = fs::read_dir(icon_dir) {
-        let icns_file = entries.flatten()
-            .map(|e| e.path())
-            .find(|p| p.extension().map_or(false, |ext| ext == "icns"));
+    // Official macOS API via Swift one-liner (ensures 100% compatibility including Assets.car)
+    let swift_code = format!(
+        "import AppKit; \
+         let img = NSWorkspace.shared.icon(forFile: \"{}\"); \
+         img.size = NSSize(width: 128, height: 128); \
+         guard let tiff = img.tiffRepresentation, \
+               let bitmap = NSBitmapImageRep(data: tiff), \
+               let data = bitmap.representation(using: .png, properties: [:]) \
+         else {{ exit(1) }}; \
+         try! data.write(to: URL(fileURLWithPath: \"{}\"))",
+        app_path.replace("\"", "\\\""),
+        cache_path.to_str().unwrap_or_default().replace("\"", "\\\"")
+    );
 
-        if let Some(icns_path) = icns_file {
-            let status = Command::new("sips")
-                .arg("-s").arg("format").arg("png")
-                .arg("-z").arg("128").arg("128")
-                .arg(icns_path.to_str().unwrap())
-                .arg("--out").arg(cache_path.to_str().unwrap())
-                .status();
+    let status = Command::new("swift")
+        .arg("-e")
+        .arg(swift_code)
+        .status();
 
-            if status.is_ok() {
-                if let Ok(data) = fs::read(&cache_path) {
-                    return Some(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(data)));
-                }
+    if let Ok(s) = status {
+        if s.success() {
+            if let Ok(data) = fs::read(&cache_path) {
+                return Some(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(data)));
             }
         }
     }
@@ -215,23 +258,23 @@ fn launch_app(path: String) {
     let _ = Command::new("open").arg(path).spawn();
 }
 
-fn guess_category(name: &str) -> Option<String> {
-    let lower = name.to_lowercase();
-    if lower.contains("code") || lower.contains("studio") || lower.contains("terminal") || lower.contains("git") || lower.contains("intellij") || lower.contains("sublime") || lower.contains("warp") || lower.contains("dev") {
-        return Some("Development".to_string());
+fn guess_category(app_path: &str) -> Option<String> {
+    // 1. Try to get official category from Info.plist
+    let info_plist = Path::new(app_path).join("Contents/Info.plist");
+    if info_plist.exists() {
+        if let Ok(output) = Command::new("plutil")
+            .arg("-extract").arg("LSApplicationCategoryType").arg("raw").arg(&info_plist)
+            .output() {
+            if output.status.success() {
+                let cat_id = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+                if cat_id.contains("developer-tools") { return Some("Development".to_string()); }
+                if cat_id.contains("social-networking") { return Some("Social".to_string()); }
+                if cat_id.contains("graphics-design") || cat_id.contains("photography") || cat_id.contains("video") { return Some("Design".to_string()); }
+                if cat_id.contains("productivity") || cat_id.contains("business") || cat_id.contains("finance") || cat_id.contains("utilities") { return Some("Productivity".to_string()); }
+            }
+        }
     }
-    if lower.contains("slack") || lower.contains("discord") || lower.contains("telegram") || lower.contains("wechat") || lower.contains("zoom") || lower.contains("skype") || lower.contains("talk") {
-        return Some("Social".to_string());
-    }
-    if lower.contains("photo") || lower.contains("image") || lower.contains("design") || lower.contains("figma") || lower.contains("sketch") || lower.contains("adobe") || lower.contains("blender") {
-        return Some("Design".to_string());
-    }
-    if lower.contains("office") || lower.contains("word") || lower.contains("excel") || lower.contains("pages") || lower.contains("keynote") || lower.contains("notion") || lower.contains("obsidian") || lower.contains("note") {
-        return Some("Productivity".to_string());
-    }
-    if lower.contains("chrome") || lower.contains("firefox") || lower.contains("safari") || lower.contains("edge") || lower.contains("browser") || lower.contains("arc") {
-        return Some("Productivity".to_string());
-    }
+
     None
 }
 
@@ -292,7 +335,7 @@ fn auto_categorize() {
              if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
                  let path_string = path.to_string_lossy().to_string();
                  if !config.categories.contains_key(&path_string) {
-                     if let Some(cat) = guess_category(name) {
+                     if let Some(cat) = guess_category(&path_string) {
                          config.categories.insert(path_string, cat.clone());
                          if !config.user_categories.contains(&cat) {
                              config.user_categories.push(cat);

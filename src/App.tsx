@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Reorder } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
@@ -30,6 +31,7 @@ interface AppConfig {
   user_categories: string[];
   shortcut: string;
   scripts: ScriptAction[];
+  category_order: string[];
 }
 
 function App() {
@@ -56,17 +58,31 @@ function App() {
   const [sortBy, setSortBy] = useState<'name' | 'usage' | 'date'>('name');
 
   // Context Menu State
-  const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; appPath: string | null }>({
+  const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; app: AppInfo | null }>({
     visible: false,
     x: 0,
     y: 0,
-    appPath: null
+    app: null
   });
 
   const [quickLookApp, setQuickLookApp] = useState<AppInfo | null>(null);
 
-  const defaultCategories = ["All", "Frequent", "User Apps", "System"];
-  const allCategories = [...defaultCategories, ...(config?.user_categories || [])];
+  const defaultCategories = ["All", "Frequent", "Scripts", "Development", "Social", "Design", "Productivity", "User Apps", "System"];
+  const allCategories = config?.category_order && config.category_order.length > 0
+    ? config.category_order
+    : [...defaultCategories, ...(config?.user_categories || []).filter(c => !defaultCategories.includes(c))];
+
+  const categoryIcons: Record<string, string> = {
+    "All": "🏠",
+    "Frequent": "⭐",
+    "Scripts": "🐚",
+    "Development": "💻",
+    "Social": "💬",
+    "Design": "🎨",
+    "Productivity": "📅",
+    "User Apps": "👤",
+    "System": "⚙️"
+  };
 
 
 
@@ -207,6 +223,13 @@ function App() {
     if (selectedCategory === category) setSelectedCategory("All");
     loadConfig();
   }
+
+  const handleReorderCategories = async (newOrder: string[]) => {
+    if (!config) return;
+    const newConfig = { ...config, category_order: newOrder };
+    setConfig(newConfig);
+    await invoke("save_config", { config: newConfig });
+  };
 
   async function handleAddScript() {
     if (!newScriptName.trim() || !newScriptCmd.trim()) return;
@@ -391,22 +414,38 @@ function App() {
 
       <aside className="sidebar">
         <h2 className="sidebar-title">Categories</h2>
-        {allCategories.map((category, index) => (
-          <div
-            key={category}
-            className={`category-item ${selectedCategory === category ? "active" : ""} ${navigationArea === 'sidebar' && selectedSideIndex === index ? "selected" : ""}`}
-            onClick={() => {
-              setSelectedCategory(category);
-              setNavigationArea('sidebar');
-              setSelectedSideIndex(index);
-              if (viewMode === 'settings') setViewMode('grid');
-            }}
-            onContextMenu={(e) => e.preventDefault()}
-          >
-            <span className="category-name">{category}</span>
-            <span className="category-count">{getCategoryCount(category)}</span>
-          </div>
-        ))}
+        <Reorder.Group
+          axis="y"
+          values={allCategories}
+          onReorder={handleReorderCategories}
+          className="categories-list"
+          style={{ listStyle: 'none', padding: 0, margin: 0 }}
+        >
+          {allCategories.map((category, index) => (
+            <Reorder.Item
+              key={category}
+              value={category}
+              className={`category-item-wrapper`}
+            >
+              <div
+                className={`category-item ${selectedCategory === category ? "active" : ""} ${navigationArea === 'sidebar' && selectedSideIndex === index ? "selected" : ""}`}
+                onClick={() => {
+                  setSelectedCategory(category);
+                  setNavigationArea('sidebar');
+                  setSelectedSideIndex(index);
+                  if (viewMode === 'settings') setViewMode('grid');
+                }}
+                onContextMenu={(e) => e.preventDefault()}
+              >
+                <div className="category-header">
+                  <span className="category-icon">{categoryIcons[category] || "📁"}</span>
+                  <span className="category-name">{category}</span>
+                </div>
+                <span className="category-count">{getCategoryCount(category)}</span>
+              </div>
+            </Reorder.Item>
+          ))}
+        </Reorder.Group>
       </aside>
 
       <main className="main-content">
@@ -442,7 +481,7 @@ function App() {
                   onClick={() => launchApp(app.path)}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, appPath: app.path });
+                    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, app: app });
                   }}
                 >
                   {app.icon_data ? (
@@ -452,19 +491,6 @@ function App() {
                   )}
                   <span className="app-name">{app.name}</span>
                   {app.is_script && <span className="script-badge">Script</span>}
-                  {!app.is_script && (
-                    <select
-                      className="category-select"
-                      value={app.category || ""}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setCategory(app.path, e.target.value)}
-                    >
-                      <option value="">Uncategorized</option>
-                      {config?.user_categories.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  )}
                 </div>
               ))}
             </div>
@@ -517,7 +543,7 @@ function App() {
                       <span>Manage Categories</span>
                     </div>
                     <div className="tags-container">
-                      {config?.user_categories.map(c => (
+                      {config?.user_categories.filter(c => !defaultCategories.includes(c)).map(c => (
                         <span key={c} className="tag-chip">
                           {c}
                           <button onClick={() => handleRemoveCategory(c)}>×</button>
@@ -601,17 +627,29 @@ function App() {
         actions={[
           {
             label: "Open / Launch",
-            onClick: () => contextMenu.appPath && launchApp(contextMenu.appPath)
+            onClick: () => contextMenu.app && launchApp(contextMenu.app.path)
           },
+          ...((contextMenu.app && !contextMenu.app.is_system && !contextMenu.app.is_script) ? [
+            { label: "--- CATEGORY ---", onClick: () => { }, divider: true },
+            {
+              label: "Uncategorized",
+              onClick: () => contextMenu.app && setCategory(contextMenu.app.path, "")
+            },
+            ...allCategories.filter(c => !["All", "Frequent", "Scripts", "User Apps", "System"].includes(c)).map(c => ({
+              label: `Move to ${c}`,
+              onClick: () => contextMenu.app && setCategory(contextMenu.app.path, c)
+            }))
+          ] : []),
+          { label: "--- SYSTEM ---", onClick: () => { }, divider: true },
           {
             label: "Reveal in Finder",
-            onClick: () => contextMenu.appPath && invoke("reveal_in_finder", { path: contextMenu.appPath })
+            onClick: () => contextMenu.app && invoke("reveal_in_finder", { path: contextMenu.app.path })
           },
           {
             label: "Copy Path",
             onClick: () => {
-              if (contextMenu.appPath) {
-                navigator.clipboard.writeText(contextMenu.appPath);
+              if (contextMenu.app) {
+                navigator.clipboard.writeText(contextMenu.app.path);
               }
             }
           }

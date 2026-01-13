@@ -275,6 +275,16 @@ body {
   white-space: nowrap;
 }
 
+.category-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.category-icon {
+  font-size: 14px;
+}
+
 .category-item:hover {
   background: rgba(59, 130, 246, 0.1);
   color: var(--accent-color);
@@ -415,31 +425,7 @@ body {
   box-shadow: 0 0 0 3px var(--glow-color);
 }
 
-/* Category Select - Hidden by default */
-.category-select {
-  margin-top: auto;
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid var(--glass-border);
-  color: var(--text-secondary);
-  border-radius: 6px;
-  padding: 4px 6px;
-  font-size: 10px;
-  outline: none;
-  cursor: pointer;
-  width: 90%;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.app-card:hover .category-select {
-  opacity: 1;
-}
-
-.category-select:hover {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: var(--accent-color);
-  color: var(--text-primary);
-}
+/* Category Select - Removed from UI */
 
 .system-tag {
   margin-top: auto;
@@ -565,6 +551,27 @@ body {
 .context-menu-item:hover {
   background: var(--accent-color);
   color: white;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 4px 8px;
+}
+
+.context-menu-item.header {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  padding: 6px 12px 2px;
+  cursor: default;
+  pointer-events: none;
+}
+
+.context-menu-item.header:hover {
+  background: transparent;
 }
 
 /* Quick Look Modal */
@@ -732,6 +739,7 @@ body {
 .auto-sort-btn:active {
   transform: translateY(0);
 }
+
 /* --- Phase 8: Settings Dashboard --- */
 .settings-dashboard {
   flex: 1;
@@ -877,13 +885,15 @@ body {
   color: #ef4444;
 }
 
-.add-row, .add-script-row {
+.add-row,
+.add-script-row {
   display: flex;
   width: 100%;
   gap: 8px;
 }
 
-.add-row input, .add-script-row input {
+.add-row input,
+.add-script-row input {
   flex: 1;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -968,6 +978,28 @@ body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.script-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #10b981;
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
