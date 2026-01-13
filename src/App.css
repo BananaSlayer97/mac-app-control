@@ -390,7 +390,7 @@ body {
   background: var(--card-bg);
   border: 1px solid var(--glass-border);
   border-radius: 16px;
-  padding: 16px 8px;
+  padding: 12px 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -398,7 +398,7 @@ body {
   cursor: pointer;
   text-align: center;
   width: 120px;
-  height: 160px;
+  height: 120px;
   position: relative;
 }
 
@@ -439,10 +439,10 @@ body {
 
 /* App Icon */
 .app-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  margin-bottom: 10px;
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
+  margin-bottom: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -466,10 +466,10 @@ body {
 }
 
 .app-name {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
-  line-height: 1.3;
-  margin-bottom: 8px;
+  line-height: 1.2;
+  margin-bottom: 4px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;

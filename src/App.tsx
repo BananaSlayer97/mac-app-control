@@ -34,6 +34,22 @@ interface AppConfig {
   category_order: string[];
 }
 
+function AppIcon({ path, name, initialIcon }: { path: string; name: string; initialIcon?: string }) {
+  const [icon, setIcon] = useState<string | null>(initialIcon || null);
+
+  useEffect(() => {
+    if (!initialIcon) {
+      invoke<string | null>("get_app_icon", { path }).then(setIcon);
+    }
+  }, [path, initialIcon]);
+
+  if (icon) {
+    return <img src={icon} alt={name} className="app-icon" />;
+  }
+  return <div className="app-icon app-placeholder">{name.charAt(0)}</div>;
+}
+
+
 function App() {
   const [apps, setApps] = useState<AppInfo[]>([]);
   const [filteredApps, setFilteredApps] = useState<AppInfo[]>([]);
@@ -160,12 +176,12 @@ function App() {
     setFilteredApps(result);
   }, [searchQuery, apps, selectedCategory, sortBy]);
 
-  async function loadApps() {
+  async function loadApps(refresh: boolean = false) {
     try {
-      const installedApps: AppInfo[] = await invoke("get_installed_apps");
+      const installedApps: AppInfo[] = await invoke("get_installed_apps", { refresh });
 
       // Merge scripts
-      const cfg: AppConfig = await invoke("get_config"); // Re-fetch to be safe
+      const cfg = config || await invoke<AppConfig>("get_config");
       const scriptApps: AppInfo[] = (cfg.scripts || []).map(script => ({
         name: script.name,
         path: "Script: " + script.command,
@@ -195,8 +211,8 @@ function App() {
 
     try {
       await invoke("launch_app", { path });
-      // Refresh to update usage counts
-      loadApps();
+      // Optimized: Increment count locally for instant UI update
+      setApps(prev => prev.map(a => a.path === path ? { ...a, usage_count: (a.usage_count || 0) + 1 } : a));
     } catch (error) {
       console.error("Failed to launch app:", error);
     }
@@ -205,7 +221,8 @@ function App() {
   async function setCategory(path: string, category: string) {
     try {
       await invoke("update_app_category", { path, category });
-      loadApps(); // Refresh UI
+      // Optimized: Update local state instead of full refresh
+      setApps(prev => prev.map(a => a.path === path ? { ...a, category } : a));
     } catch (error) {
       console.error("Failed to update category:", error);
     }
@@ -228,7 +245,7 @@ function App() {
     if (!config) return;
     const newConfig = { ...config, category_order: newOrder };
     setConfig(newConfig);
-    await invoke("save_config", { config: newConfig });
+    await invoke("save_config_command", { config: newConfig });
   };
 
   async function handleAddScript() {
@@ -249,7 +266,7 @@ function App() {
     try {
       await invoke("auto_categorize");
       await loadConfig();
-      await loadApps();
+      await loadApps(true); // Force refresh app list from disk
     } catch (e) {
       console.error("Auto categorize failed", e);
     }
@@ -484,11 +501,7 @@ function App() {
                     setContextMenu({ visible: true, x: e.clientX, y: e.clientY, app: app });
                   }}
                 >
-                  {app.icon_data ? (
-                    <img src={app.icon_data} alt={app.name} className="app-icon" />
-                  ) : (
-                    <div className="app-placeholder">{app.name.charAt(0)}</div>
-                  )}
+                  <AppIcon path={app.path} name={app.name} initialIcon={app.icon_data} />
                   <span className="app-name">{app.name}</span>
                   {app.is_script && <span className="script-badge">Script</span>}
                 </div>
@@ -574,21 +587,21 @@ function App() {
                         type="text"
                         value={newScriptName}
                         onChange={(e) => setNewScriptName(e.target.value)}
-                        placeholder="Name (e.g. 'Deploy')"
+                        placeholder="Name "
                         style={{ width: '120px' }}
                       />
                       <input
                         type="text"
                         value={newScriptCmd}
                         onChange={(e) => setNewScriptCmd(e.target.value)}
-                        placeholder="Shell Command..."
+                        placeholder="Shell Command "
                         style={{ flex: 1 }}
                       />
                       <input
                         type="text"
                         value={newScriptCwd}
                         onChange={(e) => setNewScriptCwd(e.target.value)}
-                        placeholder="CWD (Optional)"
+                        placeholder="Directory "
                         style={{ width: '100px' }}
                       />
                       <button className="small-btn primary" onClick={handleAddScript}>Add</button>

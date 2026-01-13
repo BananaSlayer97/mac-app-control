@@ -12,6 +12,11 @@ use tauri::{
     AppHandle,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState, Code, Modifiers, Shortcut};
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
+
+
+static APP_CACHE: Lazy<Mutex<Vec<AppInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -55,7 +60,7 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AppInfo {
     name: String,
     path: String,
@@ -121,6 +126,11 @@ fn get_cache_dir() -> PathBuf {
     path
 }
 
+#[tauri::command]
+fn get_app_icon(path: String) -> Option<String> {
+    get_app_icon_cached(&path)
+}
+
 fn get_app_icon_cached(app_path: &str) -> Option<String> {
     let cache_dir = get_cache_dir();
     let hashed_name = format!("{:x}", md5::compute(app_path));
@@ -133,7 +143,7 @@ fn get_app_icon_cached(app_path: &str) -> Option<String> {
         }
     }
 
-    // Official macOS API via Swift one-liner (ensures 100% compatibility including Assets.car)
+    // Official macOS API via Swift one-liner
     let swift_code = format!(
         "import AppKit; \
          let img = NSWorkspace.shared.icon(forFile: \"{}\"); \
@@ -212,6 +222,11 @@ fn register_app_shortcut(app: &AppHandle, shortcut_str: &str) {
 }
 
 #[tauri::command]
+fn save_config_command(config: AppConfig) {
+    save_config(&config);
+}
+
+#[tauri::command]
 fn get_config() -> AppConfig {
     load_config()
 }
@@ -279,7 +294,12 @@ fn guess_category(app_path: &str) -> Option<String> {
 }
 
 #[tauri::command]
-fn get_installed_apps() -> Vec<AppInfo> {
+fn get_installed_apps(refresh: Option<bool>) -> Vec<AppInfo> {
+    let mut cached = APP_CACHE.lock();
+    if !cached.is_empty() && !refresh.unwrap_or(false) {
+        return cached.clone();
+    }
+
     let mut apps = Vec::new();
     let config = load_config();
     
@@ -305,7 +325,9 @@ fn get_installed_apps() -> Vec<AppInfo> {
                     let is_system = path.starts_with("/System/Applications") || path.starts_with("/Applications/Utilities");
                     let category = config.categories.get(&path).cloned();
                     let usage_count = *config.usage_counts.get(&path).unwrap_or(&0);
-                    let icon_data = get_app_icon_cached(&path);
+                    
+                    // PERFORMANCE: Don't fetch icons here
+                    let icon_data = None; 
                     
                     let date_modified = fs::metadata(&path)
                         .and_then(|m| m.modified())
@@ -320,6 +342,7 @@ fn get_installed_apps() -> Vec<AppInfo> {
         }
     }
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    *cached = apps.clone();
     apps
 }
 
@@ -332,7 +355,7 @@ fn auto_categorize() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for path_str in stdout.lines() {
              let path = PathBuf::from(path_str);
-             if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+             if let Some(_name) = path.file_stem().and_then(|s| s.to_str()) {
                  let path_string = path.to_string_lossy().to_string();
                  if !config.categories.contains_key(&path_string) {
                      if let Some(cat) = guess_category(&path_string) {
@@ -448,9 +471,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_installed_apps, 
+            get_app_icon,
             launch_app,
             update_app_category,
             get_config,
+            save_config_command,
             add_category,
             remove_category,
             update_shortcut,

@@ -3609,6 +3609,8 @@ dependencies = [
  "chrono",
  "home",
  "md5",
+ "once_cell",
+ "parking_lot",
  "serde",
  "serde_json",
  "tauri",
