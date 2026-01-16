@@ -1,5 +1,6 @@
 import React from 'react';
 import './App.css';
+import { useIconData } from "./components/AppIcon";
 
 interface QuickLookProps {
     app: {
@@ -16,13 +17,14 @@ interface QuickLookProps {
 
 const QuickLookModal: React.FC<QuickLookProps> = ({ app, onClose }) => {
     if (!app) return null;
+    const icon = useIconData(app.path, app.icon_data);
 
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div className="quick-look-content" onClick={e => e.stopPropagation()}>
                 <div className="quick-look-header">
-                    {app.icon_data ? (
-                        <img src={app.icon_data} alt={app.name} className="quick-look-icon" />
+                    {icon ? (
+                        <img src={icon} alt={app.name} className="quick-look-icon" />
                     ) : (
                         <div className="quick-look-placeholder">
                             {app.name[0]}

@@ -1,0 +1,28 @@
+export interface AppInfo {
+  name: string;
+  path: string;
+  is_system: boolean;
+  category?: string;
+  usage_count: number;
+  icon_data?: string;
+  date_modified: number;
+  is_script?: boolean;
+  command?: string;
+  cwd?: string;
+}
+
+export interface ScriptAction {
+  name: string;
+  command: string;
+  cwd?: string;
+}
+
+export interface AppConfig {
+  categories: Record<string, string>;
+  usage_counts: Record<string, number>;
+  user_categories: string[];
+  shortcut: string;
+  scripts: ScriptAction[];
+  category_order: string[];
+}
+

@@ -1,98 +1,33 @@
 import { useState, useEffect, useMemo } from "react";
-import { Reorder } from "framer-motion";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 import ContextMenu from "./ContextMenu";
 import QuickLookModal from "./QuickLookModal";
-
-interface AppInfo {
-  name: string;
-  path: string;
-  is_system: boolean;
-  category?: string;
-  usage_count: number;
-  icon_data?: string;
-  date_modified: number;
-  is_script?: boolean;
-  command?: string;
-  cwd?: string;
-}
-
-interface ScriptAction {
-  name: string;
-  command: string;
-  cwd?: string;
-}
-
-interface AppConfig {
-  categories: Record<string, string>;
-  usage_counts: Record<string, number>;
-  user_categories: string[];
-  shortcut: string;
-  scripts: ScriptAction[];
-  category_order: string[];
-}
-
-const ICON_CACHE_MAX = 300;
-const ICON_CACHE = new Map<string, string>();
-
-function putIconCache(path: string, icon: string) {
-  if (ICON_CACHE.has(path)) {
-    ICON_CACHE.delete(path);
-  }
-  ICON_CACHE.set(path, icon);
-  if (ICON_CACHE.size > ICON_CACHE_MAX) {
-    const firstKey = ICON_CACHE.keys().next().value;
-    if (typeof firstKey === "string") {
-      ICON_CACHE.delete(firstKey);
-    }
-  }
-}
-
-function AppIcon({ path, name, initialIcon }: { path: string; name: string; initialIcon?: string }) {
-  const [icon, setIcon] = useState<string | null>(initialIcon || null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (initialIcon) {
-      setIcon(initialIcon);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const cached = ICON_CACHE.get(path);
-    if (cached) {
-      setIcon(cached);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    invoke<string | null>("get_app_icon", { path }).then((result) => {
-      if (cancelled) return;
-      if (!result) return;
-      putIconCache(path, result);
-      setIcon(result);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [path, initialIcon]);
-
-  if (icon) {
-    return <img src={icon} alt={name} className="app-icon" />;
-  }
-  return <div className="app-icon app-placeholder">{name.charAt(0)}</div>;
-}
+import AppGrid from "./components/AppGrid";
+import CategorySidebar from "./components/CategorySidebar";
+import SettingsDashboard from "./components/SettingsDashboard";
+import useFilteredApps from "./hooks/useFilteredApps";
+import useKeyboardNavigation from "./hooks/useKeyboardNavigation";
+import type { AppConfig, AppInfo } from "./types/app";
+import {
+  addCategory,
+  addScript,
+  autoCategorize,
+  getConfig,
+  getInstalledApps,
+  launchApp as tauriLaunchApp,
+  removeCategory,
+  removeScript,
+  revealInFinder,
+  runScript,
+  saveConfig,
+  updateAppCategory,
+  updateShortcut,
+} from "./api/tauri";
 
 
 function App() {
   const [apps, setApps] = useState<AppInfo[]>([]);
-  const [filteredApps, setFilteredApps] = useState<AppInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -112,6 +47,8 @@ function App() {
   const [newScriptCwd, setNewScriptCwd] = useState("");
 
   const [sortBy, setSortBy] = useState<'name' | 'usage' | 'date'>('name');
+
+  const filteredApps = useFilteredApps({ apps, searchQuery, selectedCategory, sortBy });
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; app: AppInfo | null }>({
@@ -162,7 +99,7 @@ function App() {
 
   async function loadConfig() {
     try {
-      const cfg: AppConfig = await invoke("get_config");
+      const cfg: AppConfig = await getConfig();
       setConfig(cfg);
       setNewShortcut(cfg.shortcut);
       return cfg;
@@ -172,57 +109,12 @@ function App() {
     }
   }
 
-  useEffect(() => {
-    let result = [...apps];
-
-    // Filtering
-    if (searchQuery) {
-      result = result.filter(app =>
-        app.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-
-    if (selectedCategory === "System") {
-      result = result.filter(app => app.is_system);
-    } else if (selectedCategory === "User Apps") {
-      result = result.filter(app => !app.is_system && !app.is_script);
-    } else if (selectedCategory === "Scripts") {
-      result = result.filter(app => app.is_script);
-    } else if (selectedCategory === "Frequent") {
-      result = result.filter(app => app.usage_count > 0)
-        .sort((a, b) => b.usage_count - a.usage_count)
-        .slice(0, 10);
-    } else if (selectedCategory !== "All") {
-      result = result.filter(app => !app.is_system && !app.is_script && app.category === selectedCategory);
-    }
-
-    // Sorting
-    if (sortBy === 'name') {
-      result.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-    } else if (sortBy === 'usage') {
-      result.sort((a, b) => b.usage_count - a.usage_count);
-    } else if (sortBy === 'date') {
-      result.sort((a, b) => b.date_modified - a.date_modified);
-    }
-
-    // Prioritize scripts in search
-    if (searchQuery) {
-      result.sort((a, b) => {
-        if (a.is_script && !b.is_script) return -1;
-        if (!a.is_script && b.is_script) return 1;
-        return 0;
-      });
-    }
-
-    setFilteredApps(result);
-  }, [searchQuery, apps, selectedCategory, sortBy]);
-
   async function loadApps(refresh: boolean = false) {
     try {
-      const installedApps: AppInfo[] = await invoke("get_installed_apps", { refresh });
+      const installedApps: AppInfo[] = await getInstalledApps(refresh);
 
       // Merge scripts
-      const cfg = config || await invoke<AppConfig>("get_config");
+      const cfg: AppConfig = config ?? await getConfig();
       const scriptApps: AppInfo[] = (cfg.scripts || []).map(script => ({
         name: script.name,
         path: "Script: " + script.command,
@@ -246,12 +138,12 @@ function App() {
     // Better: find app in state
     const app = apps.find(a => a.path === path);
     if (app && app.is_script && app.command) {
-      invoke("run_script", { command: app.command, cwd: app.cwd });
+      runScript(app.command, app.cwd);
       return;
     }
 
     try {
-      await invoke("launch_app", { path });
+      await tauriLaunchApp(path);
       // Optimized: Increment count locally for instant UI update
       setApps(prev => prev.map(a => a.path === path ? { ...a, usage_count: (a.usage_count || 0) + 1 } : a));
     } catch (error) {
@@ -263,7 +155,7 @@ function App() {
 
   async function setCategory(path: string, category: string) {
     try {
-      await invoke("update_app_category", { path, category });
+      await updateAppCategory(path, category);
       // Optimized: Update local state instead of full refresh
       setApps(prev => prev.map(a => a.path === path ? { ...a, category } : a));
     } catch (error) {
@@ -273,13 +165,13 @@ function App() {
 
   async function handleAddCategory() {
     if (!newCategory.trim()) return;
-    await invoke("add_category", { category: newCategory });
+    await addCategory(newCategory);
     setNewCategory("");
     loadConfig();
   }
 
   async function handleRemoveCategory(category: string) {
-    await invoke("remove_category", { category });
+    await removeCategory(category);
     if (selectedCategory === category) setSelectedCategory("All");
     loadConfig();
   }
@@ -288,12 +180,12 @@ function App() {
     if (!config) return;
     const newConfig = { ...config, category_order: newOrder };
     setConfig(newConfig);
-    await invoke("save_config_command", { config: newConfig });
+    await saveConfig(newConfig);
   };
 
   async function handleAddScript() {
     if (!newScriptName.trim() || !newScriptCmd.trim()) return;
-    await invoke("add_script", { name: newScriptName, command: newScriptCmd, cwd: newScriptCwd });
+    await addScript(newScriptName, newScriptCmd, newScriptCwd);
     setNewScriptName("");
     setNewScriptCmd("");
     setNewScriptCwd("");
@@ -301,32 +193,19 @@ function App() {
   }
 
   async function handleRemoveScript(name: string) {
-    await invoke("remove_script", { name });
+    await removeScript(name);
     loadConfig().then(() => loadApps());
   }
 
   async function handleAutoCategorize() {
     try {
-      await invoke("auto_categorize");
+      await autoCategorize();
       await loadConfig();
       await loadApps(true); // Force refresh app list from disk
     } catch (e) {
       console.error("Auto categorize failed", e);
     }
   }
-
-  useEffect(() => {
-    const handleClick = () => setContextMenu({ ...contextMenu, visible: false });
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-  }, [contextMenu]);
-
-  // Handle Keyboard Navigation
-  useEffect(() => {
-    // This effect is now replaced by the one above (Lines 409). 
-    // We will merge them to cleanup. 
-    // For now, removing the conflicting legacy one.
-  }, []);
 
   // Sync selected side index to category
   useEffect(() => {
@@ -380,7 +259,7 @@ function App() {
   };
 
   async function handleUpdateShortcut() {
-    await invoke("update_shortcut", { shortcut: newShortcut });
+    await updateShortcut(newShortcut);
     loadConfig();
   }
 
@@ -422,73 +301,23 @@ function App() {
     return categoryCounts[category] ?? 0;
   };
 
-
-  // ... (keep script state)
-
-  // ... (keep effects)
-
-  // Handle Keyboard Navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Global Back (Escape)
-      if (e.key === 'Escape') {
-        if (quickLookApp) setQuickLookApp(null);
-        else if (viewMode === 'settings') setViewMode('grid');
-        else if (searchQuery) setSearchQuery('');
-        return;
-      }
-
-      if (viewMode === 'settings') return; // Disable grid nav in settings
-
-      // Arrow Keys
-      if (navigationArea === 'grid') {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setSelectedIndex(prev => Math.min(prev + 5, filteredApps.length - 1));
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setSelectedIndex(prev => Math.max(prev - 5, 0));
-        } else if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          setSelectedIndex(prev => Math.min(prev + 1, filteredApps.length - 1));
-        } else if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          if (selectedIndex === 0 || selectedIndex % 5 === 0) {
-            setNavigationArea('sidebar');
-            setSelectedIndex(-1);
-          } else {
-            setSelectedIndex(prev => Math.max(prev - 1, 0));
-          }
-        } else if (e.key === 'Enter' && selectedIndex >= 0) {
-          launchApp(filteredApps[selectedIndex].path);
-        } else if (e.key === ' ') {
-          // Quick Look
-          e.preventDefault();
-          if (selectedIndex >= 0) {
-            setQuickLookApp(filteredApps[selectedIndex]);
-          }
-        }
-      } else {
-        // Sidebar Navigation
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setSelectedSideIndex(prev => Math.min(prev + 1, allCategories.length - 1));
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setSelectedSideIndex(prev => Math.max(prev - 1, 0));
-        } else if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          setNavigationArea('grid');
-          setSelectedIndex(0);
-        } else if (e.key === 'Enter') {
-          setSelectedCategory(allCategories[selectedSideIndex]);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filteredApps, selectedIndex, navigationArea, viewMode, allCategories, quickLookApp, searchQuery, selectedSideIndex]);
+  useKeyboardNavigation({
+    filteredApps,
+    selectedIndex,
+    setSelectedIndex,
+    navigationArea,
+    setNavigationArea,
+    viewMode,
+    setViewMode,
+    allCategories,
+    selectedSideIndex,
+    setSelectedSideIndex,
+    quickLookApp,
+    setQuickLookApp,
+    searchQuery,
+    setSearchQuery,
+    onLaunch: launchApp,
+  });
 
 
   return (
@@ -501,205 +330,56 @@ function App() {
         {viewMode === 'grid' ? '⚙️' : '🏠'}
       </button>
 
-      <aside className="sidebar">
-        <h2 className="sidebar-title">Categories</h2>
-        <Reorder.Group
-          axis="y"
-          values={allCategories}
-          onReorder={handleReorderCategories}
-          className="categories-list"
-          style={{ listStyle: 'none', padding: 0, margin: 0 }}
-        >
-          {allCategories.map((category, index) => (
-            <Reorder.Item
-              key={category}
-              value={category}
-              className={`category-item-wrapper`}
-            >
-              <div
-                className={`category-item ${selectedCategory === category ? "active" : ""} ${navigationArea === 'sidebar' && selectedSideIndex === index ? "selected" : ""}`}
-                onClick={() => {
-                  setSelectedCategory(category);
-                  setNavigationArea('sidebar');
-                  setSelectedSideIndex(index);
-                  if (viewMode === 'settings') setViewMode('grid');
-                }}
-                onContextMenu={(e) => e.preventDefault()}
-              >
-                <div className="category-header">
-                  <span className="category-icon">{categoryIcons[category] || "📁"}</span>
-                  <span className="category-name">{category}</span>
-                </div>
-                <span className="category-count">{getCategoryCount(category)}</span>
-              </div>
-            </Reorder.Item>
-          ))}
-        </Reorder.Group>
-      </aside>
+      <CategorySidebar
+        categories={allCategories}
+        selectedCategory={selectedCategory}
+        navigationArea={navigationArea}
+        selectedSideIndex={selectedSideIndex}
+        categoryIcons={categoryIcons}
+        getCategoryCount={getCategoryCount}
+        onReorder={handleReorderCategories}
+        onSelectCategory={(category, index) => {
+          setSelectedCategory(category);
+          setNavigationArea("sidebar");
+          setSelectedSideIndex(index);
+          if (viewMode === "settings") setViewMode("grid");
+        }}
+      />
 
       <main className="main-content">
         {viewMode === 'grid' ? (
-          <>
-            <header className="header">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search apps..."
-                className="search-bar"
-              />
-              <div className="sort-controls">
-                <select
-                  className="sort-select"
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as 'name' | 'usage' | 'date')}
-                >
-                  <option value="name">Name (A-Z)</option>
-                  <option value="usage">Most Used</option>
-                  <option value="date">Newest</option>
-                </select>
-              </div>
-            </header>
-
-            <div className="apps-grid">
-              {filteredApps.map((app, index) => (
-                <div
-                  key={app.path}
-                  id={`app-${index}`}
-                  className={`app-card ${navigationArea === 'grid' && selectedIndex === index ? 'selected' : ''}`}
-                  onClick={() => launchApp(app.path)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, app: app });
-                  }}
-                >
-                  <AppIcon path={app.path} name={app.name} initialIcon={app.icon_data} />
-                  <span className="app-name">{app.name}</span>
-                  {app.is_script && <span className="script-badge">Script</span>}
-                </div>
-              ))}
-            </div>
-          </>
+          <AppGrid
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            sortBy={sortBy}
+            onSortByChange={setSortBy}
+            apps={filteredApps}
+            navigationArea={navigationArea}
+            selectedIndex={selectedIndex}
+            onLaunch={launchApp}
+            onOpenContextMenu={(x, y, app) => setContextMenu({ visible: true, x, y, app })}
+          />
         ) : (
-          <div className="settings-dashboard">
-            <h1 className="settings-title">Control Center</h1>
-
-            <div className="settings-grid">
-              {/* General Section */}
-              <section className="settings-group">
-                <h3 className="group-title">General</h3>
-                <div className="group-card">
-                  <div className="setting-item">
-                    <div className="setting-label">
-                      <span>Global Shortcut</span>
-                      <small>Wake app from anywhere</small>
-                    </div>
-                    <div className="setting-control">
-                      <input
-                        type="text"
-                        value={newShortcut}
-                        readOnly
-                        placeholder="Press keys..."
-                        className="shortcut-input"
-                        onKeyDown={handleRecordShortcut}
-                      />
-                      <button className="small-btn" onClick={handleUpdateShortcut}>Save</button>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* Organization Section */}
-              <section className="settings-group">
-                <h3 className="group-title">Organization</h3>
-                <div className="group-card">
-                  <div className="setting-item">
-                    <div className="setting-label">
-                      <span>Smart Auto-Sort</span>
-                      <small>Heuristically categorize apps</small>
-                    </div>
-                    <button className="action-btn gradient-btn" onClick={handleAutoCategorize}>
-                      ✨ Auto-Sort Now
-                    </button>
-                  </div>
-                  <div className="divider"></div>
-                  <div className="setting-item column">
-                    <div className="setting-label">
-                      <span>Manage Categories</span>
-                    </div>
-                    <div className="tags-container">
-                      {config?.user_categories.filter(c => !defaultCategories.includes(c)).map(c => (
-                        <span key={c} className="tag-chip">
-                          {c}
-                          <button onClick={() => handleRemoveCategory(c)}>×</button>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="add-row">
-                      <input
-                        type="text"
-                        value={newCategory}
-                        onChange={(e) => setNewCategory(e.target.value)}
-                        placeholder="New Category..."
-                      />
-                      <button className="small-btn" onClick={handleAddCategory}>Add</button>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* Automation Section */}
-              <section className="settings-group">
-                <h3 className="group-title">Automation & Scripts</h3>
-                <div className="group-card">
-                  {/* Add Script */}
-                  <div className="setting-item column bg-subtle">
-                    <div className="add-script-row">
-                      <input
-                        type="text"
-                        value={newScriptName}
-                        onChange={(e) => setNewScriptName(e.target.value)}
-                        placeholder="Name "
-                        style={{ width: '120px' }}
-                      />
-                      <input
-                        type="text"
-                        value={newScriptCmd}
-                        onChange={(e) => setNewScriptCmd(e.target.value)}
-                        placeholder="Shell Command "
-                        style={{ flex: 1 }}
-                      />
-                      <input
-                        type="text"
-                        value={newScriptCwd}
-                        onChange={(e) => setNewScriptCwd(e.target.value)}
-                        placeholder="Directory "
-                        style={{ width: '100px' }}
-                      />
-                      <button className="small-btn primary" onClick={handleAddScript}>Add</button>
-                    </div>
-                  </div>
-
-                  {/* Script List */}
-                  <div className="scripts-list">
-                    {(config?.scripts || []).map(s => (
-                      <div key={s.name} className="script-row">
-                        <div className="script-icon-badge">{'>_'}</div>
-                        <div className="script-info">
-                          <span className="name">{s.name}</span>
-                          <span className="cmd">{s.command}</span>
-                        </div>
-                        <button className="delete-btn" onClick={() => handleRemoveScript(s.name)}>Delete</button>
-                      </div>
-                    ))}
-                    {(config?.scripts || []).length === 0 && (
-                      <div className="empty-state">No custom scripts added yet.</div>
-                    )}
-                  </div>
-                </div>
-              </section>
-            </div>
-          </div>
+          <SettingsDashboard
+            config={config}
+            defaultCategories={defaultCategories}
+            newShortcut={newShortcut}
+            onRecordShortcut={handleRecordShortcut}
+            onSaveShortcut={handleUpdateShortcut}
+            onAutoCategorize={handleAutoCategorize}
+            newCategory={newCategory}
+            onNewCategoryChange={setNewCategory}
+            onAddCategory={handleAddCategory}
+            onRemoveCategory={handleRemoveCategory}
+            newScriptName={newScriptName}
+            onNewScriptNameChange={setNewScriptName}
+            newScriptCmd={newScriptCmd}
+            onNewScriptCmdChange={setNewScriptCmd}
+            newScriptCwd={newScriptCwd}
+            onNewScriptCwdChange={setNewScriptCwd}
+            onAddScript={handleAddScript}
+            onRemoveScript={handleRemoveScript}
+          />
         )}
       </main>
 
@@ -708,7 +388,7 @@ function App() {
         visible={contextMenu.visible}
         x={contextMenu.x}
         y={contextMenu.y}
-        onClose={() => setContextMenu({ ...contextMenu, visible: false })}
+        onClose={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
         actions={[
           {
             label: "Open / Launch",
@@ -728,7 +408,7 @@ function App() {
           { label: "--- SYSTEM ---", onClick: () => { }, divider: true },
           {
             label: "Reveal in Finder",
-            onClick: () => contextMenu.app && invoke("reveal_in_finder", { path: contextMenu.app.path })
+            onClick: () => contextMenu.app && revealInFinder(contextMenu.app.path)
           },
           {
             label: "Copy Path",
