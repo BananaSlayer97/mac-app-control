@@ -112,6 +112,7 @@ function App() {
       setSelectedIndex(0);
       // Optional: Select search bar
       (document.querySelector('.search-bar') as HTMLInputElement)?.focus();
+      loadApps(false);
     });
 
     return () => {
@@ -215,6 +216,8 @@ function App() {
       setApps(prev => prev.map(a => a.path === path ? { ...a, usage_count: (a.usage_count || 0) + 1 } : a));
     } catch (error) {
       console.error("Failed to launch app:", error);
+      setApps(prev => prev.filter(a => a.path !== path));
+      await loadApps(false);
     }
   }
 

@@ -264,13 +264,24 @@ fn update_app_category(path: String, category: String) {
 }
 
 #[tauri::command]
-fn launch_app(path: String) {
+fn launch_app(path: String) -> Result<(), String> {
+    if !Path::new(&path).exists() {
+        return Err("App not found".to_string());
+    }
+
+    let status = Command::new("open")
+        .arg(&path)
+        .status()
+        .map_err(|e| format!("Failed to execute open: {}", e))?;
+    if !status.success() {
+        return Err("Failed to launch app".to_string());
+    }
+
     let mut config = load_config();
     let count = config.usage_counts.entry(path.clone()).or_insert(0);
     *count += 1;
     save_config(&config);
-
-    let _ = Command::new("open").arg(path).spawn();
+    Ok(())
 }
 
 fn guess_category(app_path: &str) -> Option<String> {
@@ -297,6 +308,15 @@ fn guess_category(app_path: &str) -> Option<String> {
 fn get_installed_apps(refresh: Option<bool>) -> Vec<AppInfo> {
     let mut cached = APP_CACHE.lock();
     if !cached.is_empty() && !refresh.unwrap_or(false) {
+        let pruned: Vec<AppInfo> = cached
+            .iter()
+            .cloned()
+            .filter(|app| Path::new(&app.path).exists())
+            .collect();
+        if pruned.len() != cached.len() {
+            *cached = pruned.clone();
+            return pruned;
+        }
         return cached.clone();
     }
 
@@ -487,4 +507,50 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prunes_nonexistent_cached_apps() {
+        let existing_app = std::env::temp_dir().join("macappcontrol_test_existing.app");
+        let _ = fs::remove_dir_all(&existing_app);
+        fs::create_dir_all(&existing_app).unwrap();
+
+        let missing_app = std::env::temp_dir().join("macappcontrol_test_missing.app");
+        let _ = fs::remove_dir_all(&missing_app);
+
+        {
+            let mut cache = APP_CACHE.lock();
+            *cache = vec![
+                AppInfo {
+                    name: "Existing".to_string(),
+                    path: existing_app.to_string_lossy().to_string(),
+                    is_system: false,
+                    category: None,
+                    usage_count: 0,
+                    icon_data: None,
+                    date_modified: 0,
+                },
+                AppInfo {
+                    name: "Missing".to_string(),
+                    path: missing_app.to_string_lossy().to_string(),
+                    is_system: false,
+                    category: None,
+                    usage_count: 0,
+                    icon_data: None,
+                    date_modified: 0,
+                },
+            ];
+        }
+
+        let result = get_installed_apps(Some(false));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "Existing");
+
+        let _ = fs::remove_dir_all(&existing_app);
+        APP_CACHE.lock().clear();
+    }
 }
