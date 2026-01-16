@@ -31,3 +31,5 @@ dist-ssr
 **/Thumbs.db
 .agent
 .shared
+.trae/documents/性能优化五项改动的收益与代价评估.md
+.trae/documents/整体代码 Review 与拆分计划.md

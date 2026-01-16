@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Reorder } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -34,13 +34,53 @@ interface AppConfig {
   category_order: string[];
 }
 
+const ICON_CACHE_MAX = 300;
+const ICON_CACHE = new Map<string, string>();
+
+function putIconCache(path: string, icon: string) {
+  if (ICON_CACHE.has(path)) {
+    ICON_CACHE.delete(path);
+  }
+  ICON_CACHE.set(path, icon);
+  if (ICON_CACHE.size > ICON_CACHE_MAX) {
+    const firstKey = ICON_CACHE.keys().next().value;
+    if (typeof firstKey === "string") {
+      ICON_CACHE.delete(firstKey);
+    }
+  }
+}
+
 function AppIcon({ path, name, initialIcon }: { path: string; name: string; initialIcon?: string }) {
   const [icon, setIcon] = useState<string | null>(initialIcon || null);
 
   useEffect(() => {
-    if (!initialIcon) {
-      invoke<string | null>("get_app_icon", { path }).then(setIcon);
+    let cancelled = false;
+
+    if (initialIcon) {
+      setIcon(initialIcon);
+      return () => {
+        cancelled = true;
+      };
     }
+
+    const cached = ICON_CACHE.get(path);
+    if (cached) {
+      setIcon(cached);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    invoke<string | null>("get_app_icon", { path }).then((result) => {
+      if (cancelled) return;
+      if (!result) return;
+      putIconCache(path, result);
+      setIcon(result);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [path, initialIcon]);
 
   if (icon) {
@@ -344,13 +384,42 @@ function App() {
     loadConfig();
   }
 
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    counts["All"] = apps.length;
+
+    let frequent = 0;
+    let userApps = 0;
+    let system = 0;
+    let scripts = 0;
+    const byCategory: Record<string, number> = {};
+
+    for (const app of apps) {
+      if (app.usage_count > 0) frequent += 1;
+      if (app.is_script) scripts += 1;
+      if (app.is_system) system += 1;
+      if (!app.is_system && !app.is_script) userApps += 1;
+      if (app.category) {
+        byCategory[app.category] = (byCategory[app.category] || 0) + 1;
+      }
+    }
+
+    counts["Frequent"] = frequent;
+    counts["User Apps"] = userApps;
+    counts["System"] = system;
+    counts["Scripts"] = scripts;
+
+    for (const category of allCategories) {
+      if (counts[category] === undefined) {
+        counts[category] = byCategory[category] || 0;
+      }
+    }
+
+    return counts;
+  }, [apps, allCategories]);
+
   const getCategoryCount = (category: string) => {
-    if (category === "All") return apps.length;
-    if (category === "Frequent") return apps.filter(a => a.usage_count > 0).length;
-    if (category === "User Apps") return apps.filter(a => !a.is_system && !a.is_script).length;
-    if (category === "System") return apps.filter(a => a.is_system).length;
-    if (category === "Scripts") return apps.filter(a => a.is_script).length;
-    return apps.filter(a => a.category === category).length;
+    return categoryCounts[category] ?? 0;
   };
 
 
