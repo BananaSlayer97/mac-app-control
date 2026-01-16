@@ -116,7 +116,7 @@ User preferences (usage counts, categories, custom labels) are stored in:
 
 ## 📄 License
 
-MIT License - feel free to use this project however you'd like.
+MIT License. See [LICENSE](LICENSE).
 
 ---
 
