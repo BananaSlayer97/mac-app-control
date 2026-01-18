@@ -24,5 +24,10 @@ export interface AppConfig {
   shortcut: string;
   scripts: ScriptAction[];
   category_order: string[];
+  theme: string;
+  wallpaper?: string;
+  wallpaper_blur: number;
+  wallpaper_overlay: number;
+  wallpaper_fit: string;
+  wallpaper_position: string;
 }
-

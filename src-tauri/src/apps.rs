@@ -41,44 +41,6 @@ pub fn launch_app(path: String) -> Result<(), String> {
     Ok(())
 }
 
-fn guess_category(app_path: &str) -> Option<String> {
-    let info_plist = Path::new(app_path).join("Contents/Info.plist");
-    if info_plist.exists() {
-        if let Ok(output) = Command::new("plutil")
-            .arg("-extract")
-            .arg("LSApplicationCategoryType")
-            .arg("raw")
-            .arg(&info_plist)
-            .output()
-        {
-            if output.status.success() {
-                let cat_id = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
-                if cat_id.contains("developer-tools") {
-                    return Some("Development".to_string());
-                }
-                if cat_id.contains("social-networking") {
-                    return Some("Social".to_string());
-                }
-                if cat_id.contains("graphics-design")
-                    || cat_id.contains("photography")
-                    || cat_id.contains("video")
-                {
-                    return Some("Design".to_string());
-                }
-                if cat_id.contains("productivity")
-                    || cat_id.contains("business")
-                    || cat_id.contains("finance")
-                    || cat_id.contains("utilities")
-                {
-                    return Some("Productivity".to_string());
-                }
-            }
-        }
-    }
-
-    None
-}
-
 #[tauri::command]
 pub fn get_installed_apps(refresh: Option<bool>) -> Vec<AppInfo> {
     let mut cached = APP_CACHE.lock();
@@ -157,39 +119,6 @@ pub fn get_installed_apps(refresh: Option<bool>) -> Vec<AppInfo> {
     apps
 }
 
-#[tauri::command]
-pub fn auto_categorize() {
-    let mut config = load_config();
-    let mut modified = false;
-
-    if let Ok(output) = Command::new("mdfind")
-        .arg("-onlyin")
-        .arg("/Applications")
-        .arg("kMDItemContentTypeTree == 'com.apple.application-bundle'")
-        .output()
-    {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for path_str in stdout.lines() {
-            let path = PathBuf::from(path_str);
-            if path.file_stem().and_then(|s| s.to_str()).is_some() {
-                let path_string = path.to_string_lossy().to_string();
-                if !config.categories.contains_key(&path_string) {
-                    if let Some(cat) = guess_category(&path_string) {
-                        config.categories.insert(path_string, cat.clone());
-                        if !config.user_categories.contains(&cat) {
-                            config.user_categories.push(cat);
-                        }
-                        modified = true;
-                    }
-                }
-            }
-        }
-    }
-
-    if modified {
-        save_config(&config);
-    }
-}
 
 #[tauri::command]
 pub fn reveal_in_finder(path: String) {

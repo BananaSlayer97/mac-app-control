@@ -45,3 +45,12 @@ pub fn remove_script(name: String) {
     save_config(&config);
 }
 
+#[tauri::command]
+pub fn update_script(original_name: String, name: String, command: String, cwd: Option<String>) {
+    let mut config = load_config();
+    config
+        .scripts
+        .retain(|s| s.name != original_name && s.name != name);
+    config.scripts.push(ScriptAction { name, command, cwd });
+    save_config(&config);
+}

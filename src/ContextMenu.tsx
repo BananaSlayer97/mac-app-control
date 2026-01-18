@@ -1,21 +1,22 @@
-import React, { useEffect, useRef } from 'react';
-import './App.css'; // Reuse existing styles or add new ones
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import './App.css';
 
 interface ContextMenuProps {
     x: number;
     y: number;
     visible: boolean;
     onClose: () => void;
-    actions: {
-        label: string;
-        onClick: () => void;
-        danger?: boolean;
-        divider?: boolean;
-    }[];
+    items: ContextMenuItem[];
 }
 
-const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, visible, onClose, actions }) => {
+type ContextMenuItem =
+    | { type: "divider" }
+    | { type: "header"; label: string }
+    | { type: "item"; label: string; onClick: () => void; danger?: boolean; disabled?: boolean; shortcut?: string; checked?: boolean };
+
+const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, visible, onClose, items }) => {
     const menuRef = useRef<HTMLDivElement>(null);
+    const [position, setPosition] = useState({ top: y, left: x });
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -32,40 +33,66 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, visible, onClose, actio
         };
     }, [visible, onClose]);
 
+    useLayoutEffect(() => {
+        if (visible && menuRef.current) {
+            const { offsetWidth, offsetHeight } = menuRef.current;
+            let newTop = y;
+            let newLeft = x;
+
+            // Check vertical overflow
+            if (y + offsetHeight > window.innerHeight) {
+                // Try to position above the click point
+                newTop = Math.max(0, y - offsetHeight);
+            }
+
+            // Check horizontal overflow
+            if (x + offsetWidth > window.innerWidth) {
+                newLeft = Math.max(0, x - offsetWidth);
+            }
+
+            setPosition({ top: newTop, left: newLeft });
+        }
+    }, [x, y, visible]);
+
     if (!visible) return null;
-
-    // Adjust position to keep menu within viewport
-    const style = {
-        top: y,
-        left: x,
-    };
-
-    // Simple bounds checking logic could go here if needed, 
-    // but CSS transform can also help if it goes off screen bottom.
 
     return (
         <div
             className="context-menu"
-            style={style}
+            style={{ top: position.top, left: position.left }}
             ref={menuRef}
             onContextMenu={(e) => e.preventDefault()}
         >
-            {actions.map((action, index) => (
-                <React.Fragment key={index}>
-                    {action.divider && <div className="context-menu-divider" />}
+            {items.map((item, index) => {
+                if (item.type === "divider") {
+                    return <div key={index} className="context-menu-divider" />;
+                }
+                if (item.type === "header") {
+                    return (
+                        <div key={index} className="context-menu-item header">
+                            {item.label}
+                        </div>
+                    );
+                }
+                const disabled = !!item.disabled;
+                return (
                     <div
-                        className={`context-menu-item ${action.danger ? 'danger' : ''} ${action.divider ? 'header' : ''}`}
+                        key={index}
+                        className={`context-menu-item ${item.danger ? 'danger' : ''} ${disabled ? 'disabled' : ''}`}
                         onClick={() => {
-                            if (!action.divider) {
-                                action.onClick();
-                                onClose();
-                            }
+                            if (disabled) return;
+                            item.onClick();
+                            onClose();
                         }}
                     >
-                        {action.label}
+                        <div className="context-menu-left">
+                            {item.checked ? <span className="context-menu-check">✓</span> : <span className="context-menu-check-placeholder" />}
+                            <span>{item.label}</span>
+                        </div>
+                        {item.shortcut ? <div className="context-menu-shortcut">{item.shortcut}</div> : null}
                     </div>
-                </React.Fragment>
-            ))}
+                );
+            })}
         </div>
     );
 };

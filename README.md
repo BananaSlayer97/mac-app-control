@@ -19,13 +19,18 @@ A powerful, native macOS application manager built with **Tauri v2** and **React
 
 ### 📁 Dynamic Categorization
 - **Predefined Categories**: Includes "All", "Frequent" (usage-based), "User Apps", and "System".
-- **User-Defined Categories**: Create, rename, and delete your own categories via the Settings menu.
+- **User-Defined Categories**: Create and delete your own categories via the Settings menu.
 - **Persistence**: Categorization is saved per-app path, so your workspace stays organized across restarts.
 
 ### ⚙️ Full Customization
-- **Global Toggle Shortcut**: Wake the app from anywhere with a customizable shortcut (default `Alt+Space`). Change it to `Cmd+P`, `Shift+Space`, etc.
+- **Global Toggle Shortcut**: Wake the app from anywhere with a customizable shortcut (default `Alt+Space`). Supports combinations like `Cmd+Space` or `Ctrl+Alt+K` (modifiers + A–Z/Space).
 - **Settings Menu**: A dedicated modal interface to manage your categories and system-wide preferences.
 - **Side-by-Side Sidebar**: A polished vertical sidebar for quick category switching.
+
+### 🖼️ Wallpaper & Glass
+- **Remote or Local Wallpaper**: Set a background via an image URL (`https://...`) or local path (`/Users/...` or `file:///Users/...`).
+- **Frost Control**: Adjust blur strength from **0 (original image)** to strong glass blur.
+- **Fit & Position**: Choose `cover/contain` and align `top/center/bottom/...` to avoid important parts being cropped.
 
 ### 🎨 Premium Aesthetics
 - **Glassmorphism Design**: Modern, dark-themed UI with frosted glass effects and subtle micro-shadows.
@@ -35,12 +40,14 @@ A powerful, native macOS application manager built with **Tauri v2** and **React
 ### 🧠 UX Mastery
 - **Auto-Hide**: The app automatically hides itself when you click away (lose focus).
 - **Smart Reset**: Every time you open the app, the search bar is cleared and focused, ready for new input.
-- **Quick Look**: Press `Spacebar` on any app to instantly preview its details (Path, Version, Usage Count).
+- **Quick Look**: Press `Spacebar` on any app to preview its details (Path, Usage Count, Last Modified).
+- **Focused Errors Only**: A lightweight notice bar appears only on critical failures (scan/launch/config write), with de-duplication to avoid spam.
 
 ### 🛠️ Script Actions (Power User)
 - **Custom Shell Scripts**: Define your own terminal commands in Settings (e.g., `npm run dev`, `python3 main.py`).
 - **Context Aware**: Specify a **Working Directory** for each script to run it in the correct project folder.
 - **Visible Execution**: Scripts run in a new Terminal window so you can monitor progress and see output.
+- **Test & Edit**: Test-run commands before saving, and edit saved scripts later.
 - **Unified Search**: Search for your scripts just like apps! They appear with a distinctive terminal icon.
 
 ---
@@ -111,6 +118,9 @@ To avoid extracting icons on every startup, converted `PNG` files are stored in:
 
 User preferences (usage counts, categories, custom labels) are stored in:
 `~/Library/Application Support/MacAppControl/config.json`
+
+### Local Wallpaper Security (Tauri)
+Local wallpapers are loaded via Tauri’s asset protocol and are scoped for safety. By default, this project allows local images under `$HOME/**`. If you need other paths, adjust `security.assetProtocol.scope` in `src-tauri/tauri.conf.json`.
 
 ---
 

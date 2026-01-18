@@ -20,6 +20,37 @@ pub struct AppConfig {
     pub scripts: Vec<ScriptAction>,
     #[serde(default)]
     pub category_order: Vec<String>,
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    pub wallpaper: Option<String>,
+    #[serde(default = "default_wallpaper_blur")]
+    pub wallpaper_blur: f32,
+    #[serde(default = "default_wallpaper_overlay")]
+    pub wallpaper_overlay: f32,
+    #[serde(default = "default_wallpaper_fit")]
+    pub wallpaper_fit: String,
+    #[serde(default = "default_wallpaper_position")]
+    pub wallpaper_position: String,
+}
+
+fn default_theme() -> String {
+    "Midnight".to_string()
+}
+
+fn default_wallpaper_blur() -> f32 {
+    10.0
+}
+
+fn default_wallpaper_overlay() -> f32 {
+    0.4
+}
+
+fn default_wallpaper_fit() -> String {
+    "cover".to_string()
+}
+
+fn default_wallpaper_position() -> String {
+    "center".to_string()
 }
 
 impl Default for AppConfig {
@@ -47,6 +78,12 @@ impl Default for AppConfig {
             shortcut: "Alt+Space".to_string(),
             scripts: vec![],
             category_order: core_categories,
+            theme: default_theme(),
+            wallpaper: None,
+            wallpaper_blur: default_wallpaper_blur(),
+            wallpaper_overlay: default_wallpaper_overlay(),
+            wallpaper_fit: default_wallpaper_fit(),
+            wallpaper_position: default_wallpaper_position(),
         }
     }
 }
@@ -130,4 +167,3 @@ pub fn update_app_category(path: String, category: String) {
     config.categories.insert(path, category);
     save_config(&config);
 }
-

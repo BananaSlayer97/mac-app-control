@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo } from "react";
+import { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import "./App.css";
 import ContextMenu from "./ContextMenu";
 import QuickLookModal from "./QuickLookModal";
 import AppGrid from "./components/AppGrid";
 import CategorySidebar from "./components/CategorySidebar";
+import NoticeBar from "./components/NoticeBar";
 import SettingsDashboard from "./components/SettingsDashboard";
 import useFilteredApps from "./hooks/useFilteredApps";
 import useKeyboardNavigation from "./hooks/useKeyboardNavigation";
@@ -12,7 +14,6 @@ import type { AppConfig, AppInfo } from "./types/app";
 import {
   addCategory,
   addScript,
-  autoCategorize,
   getConfig,
   getInstalledApps,
   launchApp as tauriLaunchApp,
@@ -21,6 +22,7 @@ import {
   revealInFinder,
   runScript,
   saveConfig,
+  updateScript,
   updateAppCategory,
   updateShortcut,
 } from "./api/tauri";
@@ -47,8 +49,35 @@ function App() {
   const [newScriptCwd, setNewScriptCwd] = useState("");
 
   const [sortBy, setSortBy] = useState<'name' | 'usage' | 'date'>('name');
+  const scrollRafRef = useRef<number | null>(null);
 
   const filteredApps = useFilteredApps({ apps, searchQuery, selectedCategory, sortBy });
+
+  const [notice, setNotice] = useState<{ kind: "error" | "info"; message: string; key: string } | null>(null);
+  const noticeLastShownRef = useRef<Map<string, number>>(new Map());
+
+  const showNotice = useCallback((params: { key: string; kind: "error" | "info"; message: string }) => {
+    const now = Date.now();
+    const last = noticeLastShownRef.current.get(params.key) ?? 0;
+    if (now - last < 2500) return;
+    noticeLastShownRef.current.set(params.key, now);
+    setNotice(params);
+  }, []);
+
+  const wallpaperUrl = useMemo(() => {
+    const raw = config?.wallpaper?.trim();
+    if (!raw) return "";
+    if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("data:") || raw.startsWith("blob:")) {
+      return raw;
+    }
+    if (raw.startsWith("file://")) {
+      return convertFileSrc(raw.slice("file://".length));
+    }
+    if (raw.startsWith("/")) {
+      return convertFileSrc(raw);
+    }
+    return raw;
+  }, [config?.wallpaper]);
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; app: AppInfo | null }>({
@@ -60,7 +89,7 @@ function App() {
 
   const [quickLookApp, setQuickLookApp] = useState<AppInfo | null>(null);
 
-  const defaultCategories = ["All", "Frequent", "Scripts", "Development", "Social", "Design", "Productivity", "User Apps", "System"];
+  const defaultCategories = ["All", "Frequent", "Scripts", "User Apps", "System"];
   const allCategories = config?.category_order && config.category_order.length > 0
     ? config.category_order
     : [...defaultCategories, ...(config?.user_categories || []).filter(c => !defaultCategories.includes(c))];
@@ -104,7 +133,7 @@ function App() {
       setNewShortcut(cfg.shortcut);
       return cfg;
     } catch (e) {
-      console.error("Failed to load config", e);
+      showNotice({ key: "config-load-failed", kind: "error", message: "配置加载失败" });
       return null;
     }
   }
@@ -129,7 +158,7 @@ function App() {
 
       setApps([...scriptApps, ...installedApps]);
     } catch (error) {
-      console.error("Failed to fetch apps:", error);
+      showNotice({ key: "apps-load-failed", kind: "error", message: "应用列表加载失败" });
     }
   }
 
@@ -147,7 +176,7 @@ function App() {
       // Optimized: Increment count locally for instant UI update
       setApps(prev => prev.map(a => a.path === path ? { ...a, usage_count: (a.usage_count || 0) + 1 } : a));
     } catch (error) {
-      console.error("Failed to launch app:", error);
+      showNotice({ key: `app-launch-failed:${path}`, kind: "error", message: "启动失败（应用可能已被移除或权限不足）" });
       setApps(prev => prev.filter(a => a.path !== path));
       await loadApps(false);
     }
@@ -197,13 +226,30 @@ function App() {
     loadConfig().then(() => loadApps());
   }
 
-  async function handleAutoCategorize() {
+  async function handleTestScript(command: string, cwd?: string) {
+    if (!command.trim()) {
+      showNotice({ key: "script-test-missing-command", kind: "error", message: "脚本命令为空" });
+      return;
+    }
+    runScript(command, cwd);
+  }
+
+  async function handleUpdateScript(originalName: string, name: string, command: string, cwd?: string) {
+    if (!name.trim()) {
+      showNotice({ key: "script-update-missing-name", kind: "error", message: "脚本名称不能为空" });
+      return;
+    }
+    if (!command.trim()) {
+      showNotice({ key: "script-update-missing-command", kind: "error", message: "脚本命令不能为空" });
+      return;
+    }
     try {
-      await autoCategorize();
+      await updateScript(originalName, name, command, cwd);
       await loadConfig();
-      await loadApps(true); // Force refresh app list from disk
-    } catch (e) {
-      console.error("Auto categorize failed", e);
+      await loadApps(false);
+      showNotice({ key: `script-updated:${originalName}:${name}`, kind: "info", message: "脚本已保存" });
+    } catch {
+      showNotice({ key: "script-update-failed", kind: "error", message: "脚本保存失败" });
     }
   }
 
@@ -221,11 +267,33 @@ function App() {
 
   // Auto-scroll to selected item
   useEffect(() => {
-    if (selectedIndex >= 0) {
-      const el = document.getElementById(`app-${selectedIndex}`);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (viewMode !== "grid") return;
+    if (navigationArea !== "grid") return;
+    if (selectedIndex < 0) return;
+
+    if (scrollRafRef.current) {
+      cancelAnimationFrame(scrollRafRef.current);
     }
-  }, [selectedIndex]);
+    scrollRafRef.current = requestAnimationFrame(() => {
+      const el = document.getElementById(`app-${selectedIndex}`);
+      const container = document.querySelector(".apps-grid") as HTMLElement | null;
+      if (!el || !container) return;
+
+      const cRect = container.getBoundingClientRect();
+      const eRect = el.getBoundingClientRect();
+      const padding = 10;
+      const above = eRect.top < cRect.top + padding;
+      const below = eRect.bottom > cRect.bottom - padding;
+
+      if (above || below) {
+        el.scrollIntoView({ behavior: "auto", block: "nearest" });
+      }
+    });
+
+    return () => {
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, [selectedIndex, navigationArea, viewMode]);
 
   const handleRecordShortcut = (e: React.KeyboardEvent) => {
     e.preventDefault();
@@ -262,6 +330,83 @@ function App() {
     await updateShortcut(newShortcut);
     loadConfig();
   }
+
+  async function handleThemeChange(theme: string) {
+    if (!config) return;
+    const newConfig = { ...config, theme };
+    setConfig(newConfig);
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      await saveConfig(newConfig);
+    } catch {
+      showNotice({ key: "config-save-failed", kind: "error", message: "配置保存失败" });
+    }
+  }
+
+  async function handleWallpaperChange(path: string) {
+    if (!config) return;
+    const newConfig = { ...config, wallpaper: path };
+    setConfig(newConfig);
+    try {
+      await saveConfig(newConfig);
+    } catch {
+      showNotice({ key: "config-save-failed", kind: "error", message: "配置保存失败" });
+    }
+  }
+
+  async function handleWallpaperBlurChange(blur: number) {
+    if (!config) return;
+    const clampedBlur = Math.max(0, Math.min(20, blur));
+    const overlay = (clampedBlur / 20) * 0.45;
+    const newConfig = { ...config, wallpaper_blur: clampedBlur, wallpaper_overlay: overlay };
+    setConfig(newConfig);
+    try {
+      await saveConfig(newConfig);
+    } catch {
+      showNotice({ key: "config-save-failed", kind: "error", message: "配置保存失败" });
+    }
+  }
+
+  async function handleWallpaperFitChange(fit: string) {
+    if (!config) return;
+    const next = fit === "contain" ? "contain" : "cover";
+    const newConfig = { ...config, wallpaper_fit: next };
+    setConfig(newConfig);
+    try {
+      await saveConfig(newConfig);
+    } catch {
+      showNotice({ key: "config-save-failed", kind: "error", message: "配置保存失败" });
+    }
+  }
+
+  async function handleWallpaperPositionChange(pos: string) {
+    if (!config) return;
+    const allowed = new Set([
+      "center",
+      "top",
+      "bottom",
+      "left",
+      "right",
+      "top left",
+      "top right",
+      "bottom left",
+      "bottom right",
+    ]);
+    const next = allowed.has(pos) ? pos : "center";
+    const newConfig = { ...config, wallpaper_position: next };
+    setConfig(newConfig);
+    try {
+      await saveConfig(newConfig);
+    } catch {
+      showNotice({ key: "config-save-failed", kind: "error", message: "配置保存失败" });
+    }
+  }
+
+  useEffect(() => {
+    if (config?.theme) {
+      document.documentElement.setAttribute('data-theme', config.theme);
+    }
+  }, [config?.theme]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -321,7 +466,28 @@ function App() {
 
 
   return (
-    <div className="app-container layout-vertical">
+    <div
+      className={`app-container layout-vertical ${wallpaperUrl ? "has-wallpaper" : ""}`}
+      style={
+        wallpaperUrl
+          ? {
+              backgroundImage: `url("${wallpaperUrl}")`,
+              ["--wallpaper-blur" as any]: `${config?.wallpaper_blur ?? 10}px`,
+              ["--wallpaper-overlay" as any]: `${config?.wallpaper_overlay ?? 0.4}`,
+              ["--wallpaper-fit" as any]: (config?.wallpaper_fit || "cover"),
+              ["--wallpaper-position" as any]: (config?.wallpaper_position || "center"),
+            }
+          : {}
+      }
+    >
+      {notice && (
+        <NoticeBar
+          kind={notice.kind}
+          message={notice.message}
+          onClose={() => setNotice(null)}
+          autoHideMs={notice.kind === "info" ? 1500 : undefined}
+        />
+      )}
       <button
         className={`settings-btn ${viewMode === 'settings' ? 'active' : ''}`}
         onClick={() => setViewMode(prev => prev === 'grid' ? 'settings' : 'grid')}
@@ -358,6 +524,7 @@ function App() {
             selectedIndex={selectedIndex}
             onLaunch={launchApp}
             onOpenContextMenu={(x, y, app) => setContextMenu({ visible: true, x, y, app })}
+            currentCategory={selectedCategory}
           />
         ) : (
           <SettingsDashboard
@@ -366,7 +533,6 @@ function App() {
             newShortcut={newShortcut}
             onRecordShortcut={handleRecordShortcut}
             onSaveShortcut={handleUpdateShortcut}
-            onAutoCategorize={handleAutoCategorize}
             newCategory={newCategory}
             onNewCategoryChange={setNewCategory}
             onAddCategory={handleAddCategory}
@@ -379,6 +545,19 @@ function App() {
             onNewScriptCwdChange={setNewScriptCwd}
             onAddScript={handleAddScript}
             onRemoveScript={handleRemoveScript}
+            onTestScript={handleTestScript}
+            onUpdateScript={handleUpdateScript}
+            currentTheme={config?.theme || "Midnight"}
+            onThemeChange={handleThemeChange}
+            wallpaper={config?.wallpaper || ""}
+            onWallpaperChange={handleWallpaperChange}
+            wallpaperBlur={config?.wallpaper_blur ?? 10}
+            onWallpaperBlurChange={handleWallpaperBlurChange}
+            wallpaperFit={config?.wallpaper_fit || "cover"}
+            onWallpaperFitChange={handleWallpaperFitChange}
+            wallpaperPosition={config?.wallpaper_position || "center"}
+            onWallpaperPositionChange={handleWallpaperPositionChange}
+            apps={apps}
           />
         )}
       </main>
@@ -389,36 +568,44 @@ function App() {
         x={contextMenu.x}
         y={contextMenu.y}
         onClose={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
-        actions={[
-          {
-            label: "Open / Launch",
-            onClick: () => contextMenu.app && launchApp(contextMenu.app.path)
-          },
-          ...((contextMenu.app && !contextMenu.app.is_system && !contextMenu.app.is_script) ? [
-            { label: "--- CATEGORY ---", onClick: () => { }, divider: true },
-            {
+        items={(() => {
+          const items: any[] = [];
+          const app = contextMenu.app;
+          if (!app) return items;
+          items.push({ type: "item", label: "Open / Launch", onClick: () => launchApp(app.path) });
+          if (!app.is_system && !app.is_script) {
+            items.push({ type: "divider" });
+            items.push({ type: "header", label: "Category" });
+            const customCategories = allCategories.filter(
+              (c) => !["All", "Frequent", "Scripts", "User Apps", "System"].includes(c)
+            );
+            items.push({
+              type: "item",
               label: "Uncategorized",
-              onClick: () => contextMenu.app && setCategory(contextMenu.app.path, "")
-            },
-            ...allCategories.filter(c => !["All", "Frequent", "Scripts", "User Apps", "System"].includes(c)).map(c => ({
-              label: `Move to ${c}`,
-              onClick: () => contextMenu.app && setCategory(contextMenu.app.path, c)
-            }))
-          ] : []),
-          { label: "--- SYSTEM ---", onClick: () => { }, divider: true },
-          {
-            label: "Reveal in Finder",
-            onClick: () => contextMenu.app && revealInFinder(contextMenu.app.path)
-          },
-          {
-            label: "Copy Path",
-            onClick: () => {
-              if (contextMenu.app) {
-                navigator.clipboard.writeText(contextMenu.app.path);
-              }
+              onClick: () => setCategory(app.path, ""),
+              checked: !app.category,
+              disabled: !app.category,
+            });
+            for (const c of customCategories) {
+              items.push({
+                type: "item",
+                label: c,
+                onClick: () => setCategory(app.path, c),
+                checked: app.category === c,
+                disabled: app.category === c,
+              });
             }
           }
-        ]}
+          items.push({ type: "divider" });
+          items.push({ type: "header", label: "System" });
+          items.push({ type: "item", label: "Reveal in Finder", onClick: () => revealInFinder(app.path) });
+          items.push({
+            type: "item",
+            label: "Copy Path",
+            onClick: () => navigator.clipboard.writeText(app.path),
+          });
+          return items;
+        })()}
       />
 
       <QuickLookModal

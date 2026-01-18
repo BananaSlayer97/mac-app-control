@@ -5,19 +5,26 @@ use crate::config::{load_config, save_config};
 
 fn parse_shortcut(s: &str) -> Option<Shortcut> {
     let parts: Vec<&str> = s.split('+').collect();
-    if parts.len() != 2 {
+    if parts.len() < 2 {
         return None;
     }
 
-    let modifier = match parts[0].to_lowercase().as_str() {
-        "alt" | "option" => Some(Modifiers::ALT),
-        "command" | "cmd" | "super" => Some(Modifiers::SUPER),
-        "control" | "ctrl" => Some(Modifiers::CONTROL),
-        "shift" => Some(Modifiers::SHIFT),
-        _ => None,
-    }?;
+    let mut modifiers = Modifiers::empty();
+    for m in &parts[..parts.len() - 1] {
+        match m.to_lowercase().as_str() {
+            "alt" | "option" => modifiers |= Modifiers::ALT,
+            "command" | "cmd" | "super" => modifiers |= Modifiers::SUPER,
+            "control" | "ctrl" => modifiers |= Modifiers::CONTROL,
+            "shift" => modifiers |= Modifiers::SHIFT,
+            _ => return None,
+        }
+    }
+    if modifiers.is_empty() {
+        return None;
+    }
 
-    let code = match parts[1].to_lowercase().as_str() {
+    let key = parts[parts.len() - 1].to_lowercase();
+    let code = match key.as_str() {
         "space" => Some(Code::Space),
         "a" => Some(Code::KeyA),
         "b" => Some(Code::KeyB),
@@ -48,7 +55,7 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
         _ => None,
     }?;
 
-    Some(Shortcut::new(Some(modifier), code))
+    Some(Shortcut::new(Some(modifiers), code))
 }
 
 pub(crate) fn register_app_shortcut(app: &AppHandle, shortcut_str: &str) {

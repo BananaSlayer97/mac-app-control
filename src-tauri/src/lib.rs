@@ -4,12 +4,12 @@ mod icons;
 mod scripts;
 mod shortcuts;
 
-pub use apps::{auto_categorize, get_installed_apps, launch_app, reveal_in_finder, AppInfo};
+pub use apps::{get_installed_apps, launch_app, reveal_in_finder, AppInfo};
 pub use config::{
     add_category, get_config, remove_category, save_config_command, update_app_category, AppConfig, ScriptAction,
 };
 pub use icons::get_app_icon;
-pub use scripts::{add_script, remove_script, run_script};
+pub use scripts::{add_script, remove_script, run_script, update_script};
 pub use shortcuts::update_shortcut;
 
 use tauri::{
@@ -74,9 +74,8 @@ pub fn run() {
             run_script,
             add_script,
             remove_script,
-            auto_categorize
+            update_script
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

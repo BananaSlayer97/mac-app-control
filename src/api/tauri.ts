@@ -53,7 +53,6 @@ export function removeScript(name: string) {
   return invoke<void>("remove_script", { name });
 }
 
-export function autoCategorize() {
-  return invoke<void>("auto_categorize");
+export function updateScript(originalName: string, name: string, command: string, cwd?: string) {
+  return invoke<void>("update_script", { original_name: originalName, name, command, cwd });
 }
-

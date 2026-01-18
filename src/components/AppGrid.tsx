@@ -1,4 +1,5 @@
 import AppIcon from "./AppIcon";
+import EmptyState from "./EmptyState";
 import type { AppInfo } from "../types/app";
 
 export default function AppGrid({
@@ -11,6 +12,7 @@ export default function AppGrid({
   selectedIndex,
   onLaunch,
   onOpenContextMenu,
+  currentCategory,
 }: {
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
@@ -21,6 +23,7 @@ export default function AppGrid({
   selectedIndex: number;
   onLaunch: (path: string) => void;
   onOpenContextMenu: (x: number, y: number, app: AppInfo) => void;
+  currentCategory?: string;
 }) {
   return (
     <>
@@ -45,24 +48,30 @@ export default function AppGrid({
         </div>
       </header>
 
-      <div className="apps-grid">
-        {apps.map((app, index) => (
-          <div
-            key={app.path}
-            id={`app-${index}`}
-            className={`app-card ${navigationArea === "grid" && selectedIndex === index ? "selected" : ""}`}
-            onClick={() => onLaunch(app.path)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              onOpenContextMenu(e.clientX, e.clientY, app);
-            }}
-          >
-            <AppIcon path={app.path} name={app.name} initialIcon={app.icon_data} />
-            <span className="app-name">{app.name}</span>
-            {app.is_script && <span className="script-badge">Script</span>}
-          </div>
-        ))}
-      </div>
+      {apps.length === 0 ? (
+        <div className="apps-grid-empty">
+          <EmptyState category={currentCategory || "All"} />
+        </div>
+      ) : (
+        <div className="apps-grid">
+          {apps.map((app, index) => (
+            <div
+              key={app.path}
+              id={`app-${index}`}
+              className={`app-card ${navigationArea === "grid" && selectedIndex === index ? "selected" : ""}`}
+              onClick={() => onLaunch(app.path)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                onOpenContextMenu(e.clientX, e.clientY, app);
+              }}
+            >
+              <AppIcon path={app.path} name={app.name} initialIcon={app.icon_data} />
+              <span className="app-name">{app.name}</span>
+              {app.is_script && <span className="script-badge">Script</span>}
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }
