@@ -50,7 +50,7 @@ export default function AppGrid({
 
       {apps.length === 0 ? (
         <div className="apps-grid-empty">
-          <EmptyState category={currentCategory || "All"} />
+          <EmptyState category={currentCategory || "Apps"} />
         </div>
       ) : (
         <div className="apps-grid">
@@ -75,4 +75,3 @@ export default function AppGrid({
     </>
   );
 }
-

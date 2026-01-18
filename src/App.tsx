@@ -32,7 +32,7 @@ import {
 function App() {
   const [apps, setApps] = useState<AppInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedCategory, setSelectedCategory] = useState("");
   const [config, setConfig] = useState<AppConfig | null>(null);
 
   // Navigation State
@@ -79,13 +79,13 @@ function App() {
 
   const [quickLookApp, setQuickLookApp] = useState<AppInfo | null>(null);
 
-  const defaultCategories = ["All", "Frequent", "Scripts", "User Apps", "System"];
-  const allCategories = config?.category_order && config.category_order.length > 0
+  const defaultCategories = ["Frequent", "Scripts", "User Apps", "System"];
+  const allCategories = (config?.category_order && config.category_order.length > 0
     ? config.category_order
-    : [...defaultCategories, ...(config?.user_categories || []).filter(c => !defaultCategories.includes(c))];
+    : [...defaultCategories, ...(config?.user_categories || []).filter(c => !defaultCategories.includes(c))])
+    .filter((c) => c !== "All");
 
   const categoryIcons: Record<string, string> = {
-    "All": "🏠",
     "Frequent": "⭐",
     "Scripts": "🐚",
     "Development": "💻",
@@ -179,7 +179,7 @@ function App() {
 
   async function handleRemoveCategory(category: string) {
     await removeCategory(category);
-    if (selectedCategory === category) setSelectedCategory("All");
+    if (selectedCategory === category) setSelectedCategory("");
     loadConfig();
   }
 
@@ -388,7 +388,6 @@ function App() {
 
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    counts["All"] = apps.length;
 
     let frequent = 0;
     let userApps = 0;

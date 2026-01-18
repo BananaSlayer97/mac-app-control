@@ -20,7 +20,7 @@ export function buildAppContextMenuItems(params: {
     items.push({ type: "header", label: "Category" });
 
     const customCategories = allCategories.filter(
-      (c) => !["All", "Frequent", "Scripts", "User Apps", "System"].includes(c)
+      (c) => !["Frequent", "Scripts", "User Apps", "System"].includes(c)
     );
 
     items.push({
@@ -49,4 +49,3 @@ export function buildAppContextMenuItems(params: {
 
   return items;
 }
-

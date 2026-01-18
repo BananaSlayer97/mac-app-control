@@ -56,7 +56,6 @@ fn default_wallpaper_position() -> String {
 impl Default for AppConfig {
     fn default() -> Self {
         let core_categories = vec![
-            "All".to_string(),
             "Frequent".to_string(),
             "Scripts".to_string(),
             "Development".to_string(),
@@ -104,9 +103,9 @@ pub fn load_config() -> AppConfig {
         AppConfig::default()
     };
 
+    config.category_order.retain(|c| c != "All");
     if config.category_order.is_empty() {
         let mut default_order = vec![
-            "All".to_string(),
             "Frequent".to_string(),
             "Scripts".to_string(),
             "Development".to_string(),

@@ -31,7 +31,7 @@ export default function useFilteredApps({
         .filter((app) => app.usage_count > 0)
         .sort((a, b) => b.usage_count - a.usage_count)
         .slice(0, 10);
-    } else if (selectedCategory !== "All") {
+    } else if (selectedCategory) {
       result = result.filter((app) => !app.is_system && !app.is_script && app.category === selectedCategory);
     }
 
@@ -54,4 +54,3 @@ export default function useFilteredApps({
     return result;
   }, [apps, searchQuery, selectedCategory, sortBy]);
 }
-
