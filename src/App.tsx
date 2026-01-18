@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import "./App.css";
 import ContextMenu from "./ContextMenu";
 import QuickLookModal from "./QuickLookModal";
@@ -11,6 +10,9 @@ import SettingsDashboard from "./components/SettingsDashboard";
 import useFilteredApps from "./hooks/useFilteredApps";
 import useKeyboardNavigation from "./hooks/useKeyboardNavigation";
 import type { AppConfig, AppInfo } from "./types/app";
+import { mergeScriptsIntoApps } from "./lib/apps";
+import { buildAppContextMenuItems } from "./lib/contextMenuItems";
+import { resolveWallpaperUrl } from "./lib/wallpaper";
 import {
   addCategory,
   addScript,
@@ -26,7 +28,6 @@ import {
   updateAppCategory,
   updateShortcut,
 } from "./api/tauri";
-
 
 function App() {
   const [apps, setApps] = useState<AppInfo[]>([]);
@@ -65,18 +66,7 @@ function App() {
   }, []);
 
   const wallpaperUrl = useMemo(() => {
-    const raw = config?.wallpaper?.trim();
-    if (!raw) return "";
-    if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("data:") || raw.startsWith("blob:")) {
-      return raw;
-    }
-    if (raw.startsWith("file://")) {
-      return convertFileSrc(raw.slice("file://".length));
-    }
-    if (raw.startsWith("/")) {
-      return convertFileSrc(raw);
-    }
-    return raw;
+    return resolveWallpaperUrl(config?.wallpaper);
   }, [config?.wallpaper]);
 
   // Context Menu State
@@ -144,19 +134,7 @@ function App() {
 
       // Merge scripts
       const cfg: AppConfig = config ?? await getConfig();
-      const scriptApps: AppInfo[] = (cfg.scripts || []).map(script => ({
-        name: script.name,
-        path: "Script: " + script.command,
-        is_system: false,
-        is_script: true,
-        command: script.command,
-        cwd: script.cwd,
-        usage_count: 0,
-        category: "Scripts",
-        date_modified: Date.now() / 1000
-      }));
-
-      setApps([...scriptApps, ...installedApps]);
+      setApps(mergeScriptsIntoApps(installedApps, cfg));
     } catch (error) {
       showNotice({ key: "apps-load-failed", kind: "error", message: "应用列表加载失败" });
     }
@@ -568,44 +546,14 @@ function App() {
         x={contextMenu.x}
         y={contextMenu.y}
         onClose={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
-        items={(() => {
-          const items: any[] = [];
-          const app = contextMenu.app;
-          if (!app) return items;
-          items.push({ type: "item", label: "Open / Launch", onClick: () => launchApp(app.path) });
-          if (!app.is_system && !app.is_script) {
-            items.push({ type: "divider" });
-            items.push({ type: "header", label: "Category" });
-            const customCategories = allCategories.filter(
-              (c) => !["All", "Frequent", "Scripts", "User Apps", "System"].includes(c)
-            );
-            items.push({
-              type: "item",
-              label: "Uncategorized",
-              onClick: () => setCategory(app.path, ""),
-              checked: !app.category,
-              disabled: !app.category,
-            });
-            for (const c of customCategories) {
-              items.push({
-                type: "item",
-                label: c,
-                onClick: () => setCategory(app.path, c),
-                checked: app.category === c,
-                disabled: app.category === c,
-              });
-            }
-          }
-          items.push({ type: "divider" });
-          items.push({ type: "header", label: "System" });
-          items.push({ type: "item", label: "Reveal in Finder", onClick: () => revealInFinder(app.path) });
-          items.push({
-            type: "item",
-            label: "Copy Path",
-            onClick: () => navigator.clipboard.writeText(app.path),
-          });
-          return items;
-        })()}
+        items={buildAppContextMenuItems({
+          app: contextMenu.app,
+          allCategories,
+          onLaunch: launchApp,
+          onSetCategory: setCategory,
+          onRevealInFinder: revealInFinder,
+          onCopyText: (text) => navigator.clipboard.writeText(text),
+        })}
       />
 
       <QuickLookModal

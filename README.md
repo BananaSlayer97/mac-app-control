@@ -87,16 +87,32 @@ npm run tauri build
 ```
 mac-app-control/
 ├── src/                    # React Frontend
-│   ├── App.tsx             # Application logic, Settings modal, Filtering
+│   ├── App.tsx             # Main container: state + compose UI
 │   ├── App.css             # Glassmorphism styling and theme tokens
+│   ├── api/                # Frontend ↔ Tauri command bridge (invoke)
+│   ├── components/         # UI building blocks (grid/sidebar/settings/etc.)
+│   ├── hooks/              # Filtering + keyboard navigation
+│   ├── lib/                # Small pure helpers (wallpaper/context-menu/apps merge)
+│   └── types/              # Shared TS types (apps/config/context menu)
 │   └── main.tsx            # React entry point
 ├── src-tauri/              # Rust Backend
 │   ├── src/
-│   │   └── lib.rs          # System commands, persistence, shortcut registration
+│   │   ├── lib.rs          # Tauri builder, plugins, tray, invoke handler
+│   │   ├── apps.rs         # mdfind scan + launch/reveal
+│   │   ├── config.rs       # config.json read/write + category/script/shortcut config
+│   │   ├── icons.rs        # icon extraction + disk cache
+│   │   ├── scripts.rs      # run scripts in Terminal
+│   │   └── shortcuts.rs    # global shortcut parse/register/update
 │   ├── Cargo.toml          # Rust dependencies
 │   └── tauri.conf.json     # App configuration
 └── package.json            # Node.js dependencies
 ```
+
+---
+
+## 📚 Developer Docs
+
+- Architecture & Code Tour (CN): [docs/ARCHITECTURE-CN.md](docs/ARCHITECTURE-CN.md)
 
 ---
 

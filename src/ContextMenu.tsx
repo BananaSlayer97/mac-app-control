@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './App.css';
+import type { ContextMenuItem } from "./types/contextMenu";
 
 interface ContextMenuProps {
     x: number;
@@ -8,11 +9,6 @@ interface ContextMenuProps {
     onClose: () => void;
     items: ContextMenuItem[];
 }
-
-type ContextMenuItem =
-    | { type: "divider" }
-    | { type: "header"; label: string }
-    | { type: "item"; label: string; onClick: () => void; danger?: boolean; disabled?: boolean; shortcut?: string; checked?: boolean };
 
 const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, visible, onClose, items }) => {
     const menuRef = useRef<HTMLDivElement>(null);

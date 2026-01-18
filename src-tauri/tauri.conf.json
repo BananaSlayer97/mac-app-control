@@ -27,17 +27,6 @@
       }
     }
   },
-  "plugins": {
-    "shell": {
-      "allow": [
-        {
-          "name": "open",
-          "cmd": "open",
-          "args": true
-        }
-      ]
-    }
-  },
   "bundle": {
     "active": true,
     "targets": "all",
