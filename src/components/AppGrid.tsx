@@ -7,6 +7,8 @@ export default function AppGrid({
   onSearchQueryChange,
   sortBy,
   onSortByChange,
+  onRefreshApps,
+  appsRefreshing,
   apps,
   navigationArea,
   selectedIndex,
@@ -18,6 +20,8 @@ export default function AppGrid({
   onSearchQueryChange: (value: string) => void;
   sortBy: "name" | "usage" | "date";
   onSortByChange: (value: "name" | "usage" | "date") => void;
+  onRefreshApps: () => void;
+  appsRefreshing: boolean;
   apps: AppInfo[];
   navigationArea: "sidebar" | "grid";
   selectedIndex: number;
@@ -35,16 +39,21 @@ export default function AppGrid({
           placeholder="Search apps..."
           className="search-bar"
         />
-        <div className="sort-controls">
-          <select
-            className="sort-select"
-            value={sortBy}
-            onChange={(e) => onSortByChange(e.target.value as "name" | "usage" | "date")}
-          >
-            <option value="name">Name (A-Z)</option>
-            <option value="usage">Most Used</option>
-            <option value="date">Newest</option>
-          </select>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div className="sort-controls">
+            <select
+              className="sort-select"
+              value={sortBy}
+              onChange={(e) => onSortByChange(e.target.value as "name" | "usage" | "date")}
+            >
+              <option value="name">Name (A-Z)</option>
+              <option value="usage">Most Used</option>
+              <option value="date">Newest</option>
+            </select>
+          </div>
+          <button className="small-btn" onClick={onRefreshApps} disabled={appsRefreshing} title="Rescan installed apps">
+            {appsRefreshing ? "刷新中..." : "刷新"}
+          </button>
         </div>
       </header>
 

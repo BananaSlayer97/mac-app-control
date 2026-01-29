@@ -3,6 +3,7 @@ mod config;
 mod icons;
 mod scripts;
 mod shortcuts;
+mod wallpaper;
 
 pub use apps::{get_installed_apps, launch_app, reveal_in_finder, AppInfo};
 pub use config::{
@@ -11,6 +12,7 @@ pub use config::{
 pub use icons::get_app_icon;
 pub use scripts::{add_script, remove_script, run_script, update_script};
 pub use shortcuts::update_shortcut;
+pub use wallpaper::{delete_wallpaper, get_wallpapers_dir, import_wallpaper, list_wallpapers, WallpaperFile};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -22,6 +24,7 @@ use tauri::{
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -74,7 +77,11 @@ pub fn run() {
             run_script,
             add_script,
             remove_script,
-            update_script
+            update_script,
+            get_wallpapers_dir,
+            list_wallpapers,
+            import_wallpaper,
+            delete_wallpaper
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

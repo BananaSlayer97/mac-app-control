@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig, AppInfo } from "../types/app";
+import type { AppConfig, AppInfo, WallpaperFile } from "../types/app";
 
 export function getConfig() {
   return invoke<AppConfig>("get_config");
@@ -55,4 +55,20 @@ export function removeScript(name: string) {
 
 export function updateScript(originalName: string, name: string, command: string, cwd?: string) {
   return invoke<void>("update_script", { original_name: originalName, name, command, cwd });
+}
+
+export function getWallpapersDir() {
+  return invoke<string>("get_wallpapers_dir");
+}
+
+export function listWallpapers() {
+  return invoke<WallpaperFile[]>("list_wallpapers");
+}
+
+export function importWallpaper(sourcePath: string) {
+  return invoke<string>("import_wallpaper", { sourcePath });
+}
+
+export function deleteWallpaper(path: string) {
+  return invoke<void>("delete_wallpaper", { path });
 }

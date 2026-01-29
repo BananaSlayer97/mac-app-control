@@ -25,9 +25,16 @@ export interface AppConfig {
   scripts: ScriptAction[];
   category_order: string[];
   theme: string;
-  wallpaper?: string;
+  wallpaper?: string | null;
   wallpaper_blur: number;
   wallpaper_overlay: number;
   wallpaper_fit: string;
   wallpaper_position: string;
+}
+
+export interface WallpaperFile {
+  path: string;
+  filename: string;
+  size: number;
+  modified_ms: number | null;
 }

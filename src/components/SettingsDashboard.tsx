@@ -1,5 +1,8 @@
 import type { AppConfig, AppInfo } from "../types/app";
-import { useMemo, useState } from "react";
+import type { WallpaperFile } from "../types/app";
+import { useEffect, useMemo, useState } from "react";
+import { deleteWallpaper, getWallpapersDir, importWallpaper, listWallpapers, revealInFinder } from "../api/tauri";
+import { resolveWallpaperUrl } from "../lib/wallpaper";
 
 export default function SettingsDashboard({
   config,
@@ -71,6 +74,40 @@ export default function SettingsDashboard({
     command: string;
     cwd: string;
   } | null>(null);
+
+  const [savedWallpapers, setSavedWallpapers] = useState<WallpaperFile[]>([]);
+  const [wallpaperLoading, setWallpaperLoading] = useState(false);
+  const [wallpaperError, setWallpaperError] = useState<string | null>(null);
+  const [wallpaperBusy, setWallpaperBusy] = useState(false);
+
+  const toErrorMessage = (e: unknown) => {
+    if (typeof e === "string") return e;
+    const anyErr = e as any;
+    if (anyErr?.message) return String(anyErr.message);
+    if (anyErr?.toString) return String(anyErr.toString());
+    try {
+      return JSON.stringify(anyErr);
+    } catch {
+      return "未知错误";
+    }
+  };
+
+  const loadSavedWallpapers = async () => {
+    setWallpaperLoading(true);
+    setWallpaperError(null);
+    try {
+      const items = await listWallpapers();
+      setSavedWallpapers(items);
+    } catch {
+      setWallpaperError("读取已保存壁纸失败");
+    } finally {
+      setWallpaperLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSavedWallpapers();
+  }, []);
 
   const topApps = useMemo(() => {
     if (!config || !config.usage_counts) return [];
@@ -146,6 +183,154 @@ export default function SettingsDashboard({
                         placeholder="https://source.unsplash.com/random/1920x1080"
                         style={{width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.2)', color: 'white'}}
                     />
+                </div>
+                <div className="setting-control" style={{ justifyContent: "flex-start", gap: "8px", marginTop: "10px" }}>
+                  <button
+                    className="small-btn"
+                    disabled={wallpaperBusy}
+                    onClick={async () => {
+                      const raw = (wallpaper || "").trim();
+                      if (!raw) {
+                        setWallpaperError("请输入本地图片路径后再保存");
+                        return;
+                      }
+                      if (
+                        raw.startsWith("http://") ||
+                        raw.startsWith("https://") ||
+                        raw.startsWith("data:") ||
+                        raw.startsWith("blob:")
+                      ) {
+                        setWallpaperError("当前仅支持保存本地图片路径；远程图片请先下载到本地再保存");
+                        return;
+                      }
+
+                      setWallpaperBusy(true);
+                      setWallpaperError(null);
+                      try {
+                        const savedPath = await importWallpaper(raw);
+                        onWallpaperChange(savedPath);
+                        const items = await listWallpapers();
+                        setSavedWallpapers(items);
+                        if (!items.some((i) => i.path === savedPath)) {
+                          setWallpaperError("已保存但列表未更新（请点刷新或打开壁纸文件夹确认）");
+                        }
+                      } catch (e) {
+                        setWallpaperError(toErrorMessage(e));
+                      } finally {
+                        setWallpaperBusy(false);
+                      }
+                    }}
+                  >
+                    保存本地
+                  </button>
+                  <button
+                    className="small-btn"
+                    onClick={() => {
+                      onWallpaperChange("");
+                    }}
+                  >
+                    清除壁纸
+                  </button>
+                  <button
+                    className="small-btn"
+                    onClick={async () => {
+                      try {
+                        const dir = await getWallpapersDir();
+                        await revealInFinder(dir);
+                      } catch (e) {
+                        setWallpaperError(toErrorMessage(e));
+                      }
+                    }}
+                  >
+                    打开壁纸文件夹
+                  </button>
+                </div>
+
+                <div style={{ marginTop: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>已保存的壁纸</div>
+                    <button className="small-btn" onClick={loadSavedWallpapers} disabled={wallpaperLoading}>
+                      刷新
+                    </button>
+                  </div>
+                  {wallpaperError && <div className="empty-state-text">{wallpaperError}</div>}
+                  {wallpaperLoading ? (
+                    <div className="empty-state-text">加载中...</div>
+                  ) : savedWallpapers.length === 0 ? (
+                    <div className="empty-state-text">还没有保存过壁纸</div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "10px" }}>
+                      {savedWallpapers.map((w) => {
+                        const previewUrl = resolveWallpaperUrl(w.path);
+                        const isCurrent = (wallpaper || "").trim() === w.path;
+                        return (
+                          <div
+                            key={w.path}
+                            style={{
+                              border: "1px solid var(--glass-border)",
+                              borderRadius: "12px",
+                              overflow: "hidden",
+                              background: "rgba(255,255,255,0.04)",
+                            }}
+                          >
+                            <div
+                              style={{
+                                height: "82px",
+                                backgroundImage: previewUrl ? `url("${previewUrl}")` : undefined,
+                                backgroundSize: "cover",
+                                backgroundPosition: "center",
+                                borderBottom: "1px solid var(--glass-border)",
+                              }}
+                            />
+                            <div style={{ padding: "10px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "baseline" }}>
+                                <div style={{ fontSize: "12px", color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {w.filename}
+                                </div>
+                                {isCurrent && <div style={{ fontSize: "11px", color: "var(--accent)" }}>当前</div>}
+                              </div>
+                              <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px" }}>
+                                {(w.size / 1024 / 1024).toFixed(2)} MB
+                              </div>
+                              <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
+                                <button className={`small-btn ${isCurrent ? "active" : ""}`} onClick={() => onWallpaperChange(w.path)}>
+                                  使用
+                                </button>
+                                <button
+                                  className="small-btn"
+                                  onClick={() => {
+                                    revealInFinder(w.path);
+                                  }}
+                                >
+                                  在 Finder 中显示
+                                </button>
+                                <button
+                                  className="delete-btn"
+                                  disabled={wallpaperBusy}
+                                  onClick={async () => {
+                                    setWallpaperBusy(true);
+                                    try {
+                                      await deleteWallpaper(w.path);
+                                      if ((wallpaper || "").trim() === w.path) {
+                                        onWallpaperChange("");
+                                      }
+                                      await loadSavedWallpapers();
+                                    } catch (e) {
+                                      setWallpaperError(toErrorMessage(e));
+                                    } finally {
+                                      setWallpaperBusy(false);
+                                    }
+                                  }}
+                                >
+                                  删除
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
             </div>
 

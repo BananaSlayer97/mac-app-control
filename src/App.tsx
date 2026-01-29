@@ -51,6 +51,7 @@ function App() {
 
   const [sortBy, setSortBy] = useState<'name' | 'usage' | 'date'>('name');
   const scrollRafRef = useRef<number | null>(null);
+  const [appsRefreshing, setAppsRefreshing] = useState(false);
 
   const filteredApps = useFilteredApps({ apps, searchQuery, selectedCategory, sortBy });
 
@@ -139,6 +140,16 @@ function App() {
       showNotice({ key: "apps-load-failed", kind: "error", message: "应用列表加载失败" });
     }
   }
+
+  const handleRefreshApps = useCallback(async () => {
+    if (appsRefreshing) return;
+    setAppsRefreshing(true);
+    try {
+      await loadApps(true);
+    } finally {
+      setAppsRefreshing(false);
+    }
+  }, [appsRefreshing]);
 
   async function launchApp(path: string) {
     // Check if it's a script based on path (hacky but works with our AppInfo structure)
@@ -323,7 +334,8 @@ function App() {
 
   async function handleWallpaperChange(path: string) {
     if (!config) return;
-    const newConfig = { ...config, wallpaper: path };
+    const raw = path.trim();
+    const newConfig = { ...config, wallpaper: raw ? raw : null };
     setConfig(newConfig);
     try {
       await saveConfig(newConfig);
@@ -496,6 +508,8 @@ function App() {
             onSearchQueryChange={setSearchQuery}
             sortBy={sortBy}
             onSortByChange={setSortBy}
+            onRefreshApps={handleRefreshApps}
+            appsRefreshing={appsRefreshing}
             apps={filteredApps}
             navigationArea={navigationArea}
             selectedIndex={selectedIndex}

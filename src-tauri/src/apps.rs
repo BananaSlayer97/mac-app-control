@@ -45,16 +45,19 @@ pub fn launch_app(path: String) -> Result<(), String> {
 pub fn get_installed_apps(refresh: Option<bool>) -> Vec<AppInfo> {
     let mut cached = APP_CACHE.lock();
     if !cached.is_empty() && !refresh.unwrap_or(false) {
-        let pruned: Vec<AppInfo> = cached
+        let config = load_config();
+        let updated: Vec<AppInfo> = cached
             .iter()
-            .cloned()
             .filter(|app| Path::new(&app.path).exists())
+            .map(|app| {
+                let mut next = app.clone();
+                next.category = config.categories.get(&next.path).cloned();
+                next.usage_count = *config.usage_counts.get(&next.path).unwrap_or(&0);
+                next
+            })
             .collect();
-        if pruned.len() != cached.len() {
-            *cached = pruned.clone();
-            return pruned;
-        }
-        return cached.clone();
+        *cached = updated.clone();
+        return updated;
     }
 
     let mut apps = Vec::new();
@@ -170,4 +173,3 @@ mod tests {
         APP_CACHE.lock().clear();
     }
 }
-
