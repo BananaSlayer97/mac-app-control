@@ -94,7 +94,16 @@ pub(crate) fn get_config_path() -> PathBuf {
     path
 }
 
+use once_cell::sync::Lazy;
+use parking_lot::RwLock;
+
+static CONFIG_CACHE: Lazy<RwLock<Option<AppConfig>>> = Lazy::new(|| RwLock::new(None));
+
 pub fn load_config() -> AppConfig {
+    if let Some(config) = CONFIG_CACHE.read().as_ref() {
+        return config.clone();
+    }
+
     let mut path = get_config_path();
     path.push("config.json");
     let mut config: AppConfig = if let Ok(content) = fs::read_to_string(path) {
@@ -122,14 +131,23 @@ pub fn load_config() -> AppConfig {
         }
         config.category_order = default_order;
     }
+    
+    *CONFIG_CACHE.write() = Some(config.clone());
     config
 }
 
 pub fn save_config(config: &AppConfig) {
+    *CONFIG_CACHE.write() = Some(config.clone());
+    
     let mut path = get_config_path();
     path.push("config.json");
+    
+    // Safety: write to .tmp then rename
+    let tmp_path = path.with_extension("json.tmp");
     if let Ok(content) = serde_json::to_string_pretty(config) {
-        let _ = fs::write(path, content);
+        if fs::write(&tmp_path, content).is_ok() {
+            let _ = fs::rename(tmp_path, path);
+        }
     }
 }
 
