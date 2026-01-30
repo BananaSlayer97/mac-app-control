@@ -141,12 +141,17 @@ body {
   /* More space for title bar */
 }
 
-/* Settings Button - Always bottom-left */
-.settings-btn {
+/* Navigation Control Buttons */
+.control-buttons {
   position: fixed;
   bottom: 16px;
   left: 16px;
+  display: flex;
+  gap: 10px;
   z-index: 1000;
+}
+
+.settings-btn, .help-btn {
   background: var(--sidebar-bg);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -156,16 +161,28 @@ body {
   cursor: pointer;
   padding: 8px 12px;
   font-size: 18px;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
-.settings-btn:hover {
+.settings-btn:hover, .help-btn:hover {
   background: rgba(59, 130, 246, 0.2);
   border-color: var(--accent-color);
-  transform: rotate(45deg);
+  transform: translateY(-2px);
+}
+
+.settings-btn:active, .help-btn:active {
+  transform: translateY(0);
+}
+
+.settings-btn.active, .help-btn.active {
+  background: var(--accent-color);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 0 15px var(--glow-color);
 }
 
 .notice-bar {

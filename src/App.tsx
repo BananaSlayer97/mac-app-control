@@ -7,6 +7,7 @@ import AppGrid from "./components/AppGrid";
 import CategorySidebar from "./components/CategorySidebar";
 import NoticeBar from "./components/NoticeBar";
 import SettingsDashboard from "./components/SettingsDashboard";
+import AboutModal from "./components/AboutModal";
 import useFilteredApps from "./hooks/useFilteredApps";
 import useKeyboardNavigation from "./hooks/useKeyboardNavigation";
 import { buildAppContextMenuItems } from "./lib/contextMenuItems";
@@ -54,6 +55,7 @@ function App() {
   });
 
   const [quickLookApp, setQuickLookApp] = useState<any | null>(null);
+  const [showAboutModal, setShowAboutModal] = useState(false);
 
   const defaultCategories = ["Frequent", "Scripts", "Development", "Social", "Design", "Productivity", "User Apps", "System"];
 
@@ -165,13 +167,22 @@ function App() {
         />
       )}
 
-      <button
-        className={`settings-btn ${viewMode === 'settings' ? 'active' : ''}`}
-        onClick={() => setViewMode(prev => prev === 'grid' ? 'settings' : 'grid')}
-        title="Settings"
-      >
-        {viewMode === 'grid' ? '⚙️' : '🏠'}
-      </button>
+      <div className="control-buttons">
+        <button
+          className={`help-btn ${showAboutModal ? 'active' : ''}`}
+          onClick={() => setShowAboutModal(true)}
+          title="Manual & About"
+        >
+          📖
+        </button>
+        <button
+          className={`settings-btn ${viewMode === 'settings' ? 'active' : ''}`}
+          onClick={() => setViewMode(prev => prev === 'grid' ? 'settings' : 'grid')}
+          title="Settings"
+        >
+          {viewMode === 'grid' ? '⚙️' : '🏠'}
+        </button>
+      </div>
 
       <CategorySidebar
         categories={allCategories}
@@ -229,6 +240,10 @@ function App() {
         app={quickLookApp}
         onClose={() => setQuickLookApp(null)}
       />
+
+      {showAboutModal && (
+        <AboutModal onClose={() => setShowAboutModal(false)} />
+      )}
     </div>
   );
 }
