@@ -32,25 +32,34 @@ pub fn run_script(command: String, cwd: Option<String>) {
 }
 
 #[tauri::command]
-pub fn add_script(name: String, command: String, cwd: Option<String>) {
+pub fn add_script(app: tauri::AppHandle, name: String, command: String, cwd: Option<String>) {
     let mut config = load_config();
     config.scripts.push(ScriptAction { name, command, cwd });
     save_config(&config);
+    crate::update_tray_menu(&app);
 }
 
 #[tauri::command]
-pub fn remove_script(name: String) {
+pub fn remove_script(app: tauri::AppHandle, name: String) {
     let mut config = load_config();
     config.scripts.retain(|s| s.name != name);
     save_config(&config);
+    crate::update_tray_menu(&app);
 }
 
 #[tauri::command]
-pub fn update_script(original_name: String, name: String, command: String, cwd: Option<String>) {
+pub fn update_script(
+    app: tauri::AppHandle,
+    original_name: String,
+    name: String,
+    command: String,
+    cwd: Option<String>,
+) {
     let mut config = load_config();
     config
         .scripts
         .retain(|s| s.name != original_name && s.name != name);
     config.scripts.push(ScriptAction { name, command, cwd });
     save_config(&config);
+    crate::update_tray_menu(&app);
 }
