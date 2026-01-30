@@ -3,6 +3,7 @@ import AppearanceSection from "./settings/AppearanceSection";
 import GeneralSection from "./settings/GeneralSection";
 import OrganizationSection from "./settings/OrganizationSection";
 import AutomationSection from "./settings/AutomationSection";
+import AboutSection from "./settings/AboutSection";
 
 export default function SettingsDashboard() {
   return (
@@ -15,6 +16,7 @@ export default function SettingsDashboard() {
         <GeneralSection />
         <OrganizationSection />
         <AutomationSection />
+        <AboutSection />
       </div>
     </div>
   );
