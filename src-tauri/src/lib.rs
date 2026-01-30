@@ -16,7 +16,7 @@ pub use wallpaper::{delete_wallpaper, get_wallpapers_dir, import_wallpaper, list
 
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::{TrayIcon, TrayIconBuilder},
+    tray::TrayIconBuilder,
     AppHandle, Manager,
 };
 
@@ -63,6 +63,9 @@ pub fn run() {
             _ => {}
         })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let config = config::load_config();
             shortcuts::register_app_shortcut(app.handle(), &config.shortcut);
 

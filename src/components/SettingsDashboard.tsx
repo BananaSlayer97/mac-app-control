@@ -1,4 +1,3 @@
-import StatisticsSection from "./settings/StatisticsSection";
 import AppearanceSection from "./settings/AppearanceSection";
 import GeneralSection from "./settings/GeneralSection";
 import OrganizationSection from "./settings/OrganizationSection";
@@ -10,7 +9,6 @@ export default function SettingsDashboard() {
       <h1 className="settings-title">Control Center</h1>
 
       <div className="settings-grid">
-        <StatisticsSection />
         <AppearanceSection />
         <GeneralSection />
         <OrganizationSection />
